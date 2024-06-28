@@ -1,7 +1,7 @@
 import numpy as np
 import casadi as ca
 import itertools
-import predicate_builder_module as prmod
+from .predicate_builder_module import * 
 from   typing import Self
 import networkx as nx 
 import matplotlib.pyplot as plt 
@@ -88,13 +88,13 @@ class edgeMapping(dict):
 
 class TaskContainer() :
     """Support class for task storage. Each task container contains the lagrangian coefficients and concensus variables for each task"""
-    def __init__(self, task : prmod.StlTask , path : list[int] = [],taskID: int|None = None) -> None:
+    def __init__(self, task : StlTask , path : list[int] = [],taskID: int|None = None) -> None:
         """
         support class for distributed concensus optimization
 
         Args:
             path (list[int])    : path over which the task was decomposed
-            task (prmod.StlTask): task assigned (contains information about the edge)
+            task (StlTask): task assigned (contains information about the edge)
             k    (int, optional): index identifier of thi task (if multiple tasks are decompoised along the same path, then you have different index k for each)
 
         """    
@@ -104,8 +104,8 @@ class TaskContainer() :
         else :
             self._path = path
         
-        if not isinstance(task,prmod.StlTask) :
-            raise ValueError(f"Input must be a valid instance of {prmod.StlTask.__class__.__name__}")
+        if not isinstance(task,StlTask) :
+            raise ValueError(f"Input must be a valid instance of {StlTask.__class__.__name__}")
             
         else :
             self._task = task
@@ -431,7 +431,7 @@ class AgentTaskDecomposition() :
         """_summary_
 
         Args:
-            task (prmod.StlTask): STL task
+            task (StlTask): STL task
 
         Raises:
             ValueError: if the the agentID is not the tareget or source of the given added task
@@ -455,7 +455,7 @@ class AgentTaskDecomposition() :
         """_summary_
 
         Args:
-            task (prmod.StlTask): STL task
+            task (StlTask): STL task
 
         Raises:
             ValueError: if the the agentID is not the tareget or source of the given added task
@@ -619,8 +619,8 @@ class AgentTaskDecomposition() :
     def _computeIntersectionConstraint(self,taskContaineri:TaskContainer,taskContainerj:TaskContainer) -> list[ca.Function] :
         """ creates the intersection constraionts for two tasks """
         
-        taski : prmod.StlTask = taskContaineri.task
-        taskj : prmod.StlTask = taskContainerj.task
+        taski : StlTask = taskContaineri.task
+        taskj : StlTask = taskContainerj.task
         
         if (not taski.isParametric) and (not taskj.isParametric) : # if both the tasks are nonparameteric, there is no constraint to add
             return []
@@ -799,7 +799,7 @@ class AgentTaskDecomposition() :
         # save current iteration
         self._currenetIt += 1
         
-    def getListOfActiveTasks(self) -> list[prmod.StlTask]:
+    def getListOfActiveTasks(self) -> list[StlTask]:
         """
            Returns the list of active tasks for this agent. Indeed, the active tasks are all defined over one edge and they are the tasks that the agent needs to use to solve the parameters of the parameteric tasks. 
            Note that both parameteric and non parametric tasks are present here since both need to be used in the optimization. The returned list of tasks does not contain any parameteric task since the parameter were found as a resul of the 
@@ -817,10 +817,10 @@ class AgentTaskDecomposition() :
                     scale = self._optimizer.value(taskContainer.task.scale)
                     taskContainer.task.predicate.A
                     # create a new task out of the parameteric one
-                    predicate = prmod.PolytopicPredicate(A     = taskContainer.task.predicate.A,
+                    predicate = PolytopicPredicate(A     = taskContainer.task.predicate.A,
                                                          b     = scale*taskContainer.task.predicate.b,
                                                          center= center)
-                    task = prmod.StlTask(temporalOperator   = taskContainer.task.temporalOperator,
+                    task = StlTask(temporalOperator   = taskContainer.task.temporalOperator,
                                          timeinterval       = taskContainer.task.timeInterval,
                                          predicate          = predicate,
                                          source             = taskContainer.task.sourceNode,
@@ -954,13 +954,13 @@ class GraphEdge( ) :
             self._weight = new_weight
     
    
-    def _addSingleTask(self,inputTask : prmod.StlTask|TaskContainer) -> None :
+    def _addSingleTask(self,inputTask : StlTask|TaskContainer) -> None :
         """ Set the tasks for the edge that has to be respected by the edge. Input is expected to be a list  """
        
-        if not (isinstance(inputTask,prmod.StlTask) or isinstance(inputTask,TaskContainer)) :
-            raise Exception("please enter a valid STL task object or a list of prmod.StlTask objects")
+        if not (isinstance(inputTask,StlTask) or isinstance(inputTask,TaskContainer)) :
+            raise Exception("please enter a valid STL task object or a list of StlTask objects")
         else :
-            if isinstance(inputTask,prmod.StlTask) :
+            if isinstance(inputTask,StlTask) :
                 # set the source node pairs of this node
                 if inputTask.hasUndefinedDirection :
                     inputTask.sourceTarget(source=self._sourceNode,target=self._targetNode)
@@ -989,7 +989,7 @@ class GraphEdge( ) :
                         self._tasksList.append(task) # adding a single task
             
     
-    def addTasks(self,tasks : prmod.StlTask|TaskContainer|list[prmod.StlTask]|list[TaskContainer]):
+    def addTasks(self,tasks : StlTask|TaskContainer|list[StlTask]|list[TaskContainer]):
         if isinstance(tasks,list) : # list of tasks
             for  task in tasks :
                 self._addSingleTask(task)
@@ -1067,7 +1067,7 @@ def runTaskDecomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Gra
                     # find subtask edge in the decomposition
                     subtaskEdge = findEdge(edgeList = edgeList,edge = (sourceNode,targetNode))
                     # create new subtask
-                    subtask = prmod.createParametericTaskFrom(task = task,source = sourceNode,target = targetNode) # creates a parameteric copy of the original task
+                    subtask = createParametericTaskFrom(task = task,source = sourceNode,target = targetNode) # creates a parameteric copy of the original task
                     subTaskContainer = TaskContainer(task = subtask,taskID = taskContanier.taskID ,path = path)
                     subtaskEdge.addTasks(subTaskContainer) 
     
@@ -1222,7 +1222,7 @@ def printDecompositionResult(decompositionPaths : list[list[int]], decomposition
         fig.delaxes(ax[jj])
      
    
-def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])-> dict[int,list[prmod.StlTask]]:
+def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])-> dict[int,list[StlTask]]:
     """
         Simulate agents deparametrization of the the task. This happens as follows. For all the active parametric tasks, each agent can repolace the task with a non parameteric one given its solution for the active tasks.
         For the tasks that are passive and parameteric. I have to ask the respective neigbour for its solution such that I can then update the parameteric tasks with the given values found by the computational agent
@@ -1242,10 +1242,10 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
                 
                 taskContainer.task.predicate.A
                 # create a new task out of the parameteric one
-                predicate = prmod.PolytopicPredicate(A     = taskContainer.task.predicate.A,
+                predicate = PolytopicPredicate(A     = taskContainer.task.predicate.A,
                                                      b     = scale*taskContainer.task.predicate.b,
                                                      center= center)
-                task = prmod.StlTask(temporalOperator   = taskContainer.task.temporalOperator,
+                task = StlTask(temporalOperator   = taskContainer.task.temporalOperator,
                                      timeinterval       = taskContainer.task.timeInterval,
                                      predicate          = predicate,
                                      source             = taskContainer.task.sourceNode,
@@ -1277,10 +1277,10 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
                     
                 taskContainer.task.predicate.A
                 # create a new task out of the parameteric one
-                predicate = prmod.PolytopicPredicate(A     = taskContainer.task.predicate.A,
+                predicate = PolytopicPredicate(A     = taskContainer.task.predicate.A,
                                                      b     = scale*taskContainer.task.predicate.b,
                                                      center= center)
-                task = prmod.StlTask(temporalOperator   = taskContainer.task.temporalOperator,
+                task = StlTask(temporalOperator   = taskContainer.task.temporalOperator,
                                      timeinterval       = taskContainer.task.timeInterval,
                                      predicate          = predicate,
                                      source             = taskContainer.task.sourceNode,

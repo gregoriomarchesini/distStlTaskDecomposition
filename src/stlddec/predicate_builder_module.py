@@ -1,9 +1,138 @@
 import numpy as np
 from   matplotlib.patches import Ellipse
 import casadi as ca
-from typing import Self
 import polytope as pc
-import uuid 
+
+
+
+import numpy as np
+import casadi as ca
+from   typing import Self
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+
+from  .dynamical_models import StateName
+from  .dynamical_models import DynamicalModel
+from typing import TypeAlias
+
+UniqueIdentifier : TypeAlias = int # identifier of a single agent in the system
+
+
+# some support functions    
+
+def first_word_before_underscore(string: str) -> str:
+    """split a string by underscores and return the first element"""
+    return string.split("_")[0]
+
+
+def check_barrier_function_input_names(barrier_function: ca.Function)-> bool:
+    for name in barrier_function.name_in():
+        if not first_word_before_underscore(name) in ["state","time"]:
+            return False
+    return True    
+
+def check_barrier_function_output_names(barrier_function: ca.Function)->bool:
+    for name in barrier_function.name_out():
+        if not first_word_before_underscore(name) == "value":
+            return False
+    return True
+
+def is_time_state_present(barrier_function: ca.Function) -> bool:
+    return "time" in barrier_function.name_in() 
+
+
+def check_barrier_function_IO_names(barrier_function: ca.Function) -> bool:
+    if not check_barrier_function_input_names(barrier_function) :
+         raise ValueError("The input names for the predicate functons must be in the form 'state_i' where ''i'' is the agent ID and the output name must be 'value', got input nmaes " + str(function.name_in()) + " and output names " + str(function.name_out()) + " instead")
+    
+    elif not is_time_state_present(barrier_function) :
+        raise ValueError("The time variable is not present in the input names of the barrier function. PLease make sure this is a function of time also (even if time could be not part of the barrier just put it as an input)")
+    elif not check_barrier_function_output_names(barrier_function) :
+        raise ValueError("The output name of the barrier function must be must be 'value'")
+    
+
+def check_predicate_function_input_names(predicate_function: ca.Function)-> bool:
+    for name in predicate_function.name_in():
+        if not first_word_before_underscore(name) in ["state"]:
+            return False
+    return True    
+
+
+def check_predicate_function_output_names(predicate_function: ca.Function)->bool:
+    for name in predicate_function.name_out():
+        if not first_word_before_underscore(name) == "value":
+            return False
+    return True
+
+
+def check_predicate_function_IO_names(predicate_function: ca.Function) -> bool:
+    return check_predicate_function_input_names(predicate_function) and check_predicate_function_output_names(predicate_function)
+
+
+def state_name_str(agent_id: UniqueIdentifier) -> str:
+    """_summary_
+
+    Args:
+        agent_id (UniqueIdentifier): _description_
+
+    Returns:
+        _type_: _description_
+    """    
+    return f"state_{agent_id}"
+
+def get_id_from_input_name(input_name: str) -> UniqueIdentifier:
+    """Support function to get the id of the agents involvedin the satisfaction of this barrier function
+
+    Args:
+        input_names (list[str]): _description_
+
+    Returns:
+        list[UniqueIdentifier]: _description_
+    """    
+    if not isinstance(input_name,str) :
+        raise ValueError("The input names must be a string")
+    
+ 
+    splitted_input_name = input_name.split("_")
+    if 'state' in splitted_input_name :
+        ids = int(splitted_input_name[1])
+    else :
+        raise RuntimeError("The input name must be in the form 'state_i' where ''i'' is the agent ID")
+    
+    return ids
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#################################################################
+
+
 
 
 class TimeInterval() :
@@ -67,8 +196,8 @@ class TimeInterval() :
         else :
             return False
     
-    def __lt__(self,timeInt:Self) -> Self:
-        """strict subset relations self included in timeInt ::: Self < timeInt """
+    def __lt__(self,timeInt:"TimeInterval") -> "TimeInterval":
+        """strict subset relations self included in timeInt ::: "TimeInterval" < timeInt """
         a1,b1 = timeInt.a,timeInt.b
         a2,b2 = self._a,self._b
         
@@ -84,7 +213,7 @@ class TimeInterval() :
             else :
                 return False
     
-    def __eq__(self,timeInt:Self) -> bool:
+    def __eq__(self,timeInt:"TimeInterval") -> bool:
         """ equality check """
         a1,b1 = timeInt.a,timeInt.b
         a2,b2 = self._a,self._b
@@ -94,7 +223,7 @@ class TimeInterval() :
         else :
             return False
         
-    def __ne__(self,timeInt:Self) -> bool :
+    def __ne__(self,timeInt:"TimeInterval") -> bool :
         """ inequality check """
         a1,b1 = timeInt.a,timeInt.b
         a2,b2 = self._a,self._b
@@ -104,8 +233,8 @@ class TimeInterval() :
         else :
             return True
         
-    def __le__(self,timeInt:Self) -> Self :
-        """subset relations self included in timeInt  ::: Self < timeInt """
+    def __le__(self,timeInt:"TimeInterval") -> "TimeInterval" :
+        """subset relations self included in timeInt  ::: "TimeInterval" < timeInt """
         
         a1,b1 = timeInt.a,timeInt.b
         a2,b2 = self._a,self._b
@@ -122,7 +251,7 @@ class TimeInterval() :
             else :
                 return False
         
-    def __truediv__(self,timeInt:Self) -> Self :
+    def __truediv__(self,timeInt:"TimeInterval") -> "TimeInterval" :
         """interval Intersection"""
         
         a1,b1 = timeInt.a,timeInt.b
@@ -173,11 +302,13 @@ class TimeInterval() :
     def getCopy(self) :
         return TimeInterval(a = self.a, b=self.b)
     
-    
-    
+
 class PolytopicPredicate() :
-    """class to define polytopic predicate containing the origin"""
-    def __init__(self,A: np.ndarray,b : np.ndarray, center : np.ndarray,isParametric:bool=False) -> None:
+    """Class to define polytopic predicate containing the origin"""
+    def __init__(self,A: np.ndarray,b : np.ndarray, center : np.ndarray, isParametric : bool=False) -> None:
+        
+        
+        
         # when the predicate is parameteric, then the center is assumed to be the one assigned to the orginal predicate from which the predicate is derived for the decomspotion
 
         A,b = normalForm(A,b) # translate in nromal form
@@ -228,6 +359,8 @@ class PolytopicPredicate() :
     @property
     def isParametric(self) :
         return self._isParametric
+    
+    
     
 
 class StlTask( ) :
@@ -471,87 +604,8 @@ def rotMatrix2D(angle:float):
                   -np.sin(angle),np.cos(angle)])
     
              
-        
-        
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# def getConstraintFromInclusionOf(self,formula : Self) -> list[ca.MX]:
-#     """ returns inclusion constraints for "formula" inside the of the self formula instance """
-#     if not isinstance(formula,STLformula) :
-#         raise ValueError("input formula must be an instance of STL formula")
-#     # two cases :
-#     # 1) parameteric vs parametric
-#     # 2) parameteric vs non-parameteric
-#     numVertices = 2**self._stateSpaceDimension
-#     constraints = []
-    
-#     if formula.isParametric and self.isParametric :
-        
-#         source,target = self.edgeTuple
-#         # get the represenations of both formulas with the right verse of the edge
-#         vertices      = formula.getHypercubeVertices(sourceNode=source,targetNode=target)
-#         A,b           = self.computeLinearHypercubeRepresentation(sourceNode=source,targetNode=target)
-#         constraints = []
-#         for jj in range(numVertices) : # number of vertices of hypercube is computable given the stateSpaceDimension of the problem
-#             constraints +=[ A@vertices[:,jj]-b<=np.zeros((self._stateSpaceDimension*2,1))]
-            
-#     elif  formula.isParametric and (not self.isParametric) :
-#         source,target = self.edgeTuple # check the direction of definition
-        
-#         if (formula.edgeTuple != self.edgeTuple) and (formula.edgeTuple != (target,source)) : # this happens if the edge is not the same at all
-#             raise NotImplementedError("It seems that you are trying to make an inclusion between two formulas that are not part of the same edge. This is not support for now")
-        
-#         vertices    = formula.getHypercubeVertices(sourceNode=source,targetNode=target)
-#         constraints = []
-        
-#         if self._predicate._isApproximated : # in this case the predicate was approximated so you can do all of this with linear hyperplanes 
-#             A,b = self.computeLinearHypercubeRepresentation(sourceNode=source,targetNode=target)
-#             for jj in range(numVertices) : # number of vertices of hypercube is computable given the stateSpaceDimension of the problem
-#                 constraints +=[ A@vertices[:,jj] - b<=0 ] 
-#         else :
-#             for jj in range(numVertices) : # number of vertices of hypercube is computable given the stateSpaceDimension of the problem
-#                 constraints +=[ self._predicate.function(vertices[:,jj])<=0 ] 
-            
-#     elif (not formula.isParametric) and self.isParametric :  
-#         raise NotImplementedError("Trying to include a non parameteric formula inside a parameteroc one. Not supported")
-    
-#     return constraints
-
-
-
-
 
 if __name__ =="__main__" :
     pass
-    # # simple one directional plane predicate function
-    # h = polytopicSetPredicate(center = np.array([0,0]),planeDirections=[np.array([1.,0])],distances= [-2.0])   
-    # print(h(np.array([-2,0])))
     
-    
-   
-    # h = cuboidPredicate(center = np.array([0,0]),dimensions=[3,4])
-    
-    # print(h(np.array([0,-1.4])))
-    # predicateObj= convexPredicateFunction(function=h,centerGuess=np.array([0,0]))
-    # print(predicateObj._vertices)
-    
-    # a = ca.DM([1,2])
-    # print(ca.norm_2(a))
     

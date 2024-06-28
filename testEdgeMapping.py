@@ -1,4 +1,4 @@
-from decomposition_module import edgeMapping
+from src.decomposition_module import edgeMapping
 
 
 

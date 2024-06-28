@@ -4,7 +4,7 @@ import numpy as np
 from scipy.spatial import ConvexHull
 import itertools as iter
 import networkx as nx
-from decomposition_module import edgeMapping
+from src.decomposition_module import edgeMapping
 
 class treeExpansionAgent() :
     def __init__(self,id:int,x:float,y:float) -> None:
