@@ -57,6 +57,10 @@ class InputName(StrEnum) :
     ANGULAR_VELOCITY  = "angular_velocity"
     TORQUE            = "torque"
 
+
+
+
+
 FREQUENCY = 10 # hz
 
 def is_casadiMX(x):
@@ -198,6 +202,16 @@ class DynamicalModel(ABC):
         >>> self._state_vector = ca.vertcat(self._position,self._heading)
         """
         return ca.MX.sym("state_vector",0,0)
+    
+    
+    # Todo:adding other states other substates 
+    @property
+    @abstractmethod
+    def position(self)->ca.MX:
+        """
+        The position of the dynamical system based on the defined state (example : self._position = self._state_vector[0:2])
+        """
+        pass
   
     
     @property
@@ -504,7 +518,6 @@ class DifferentialDrive(DynamicalModel):
         if  self._max_angular_velocity  <= 0:
             raise ValueError("Max angular velocity must be positive.")
         
-
 
 
         # create the state variables. Node that a unique unique_identifier is given for debugging purposes (KEEP THIS TEMPLATE)
