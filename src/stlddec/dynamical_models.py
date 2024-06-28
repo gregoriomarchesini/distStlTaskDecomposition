@@ -36,30 +36,6 @@ UniqueIdentifier: TypeAlias = int
 # The enumerators are used to define some input and output names that can be useful 
 # for describing a dynamical system. Feel free to add more names if you need them
 
-class StateName(StrEnum) :
-    VELOCITY2D = "velocity_2d"
-    POSITION2D = "position_2d"
-    POSITION3D = "position_3d"
-    VELOCITY3D = "velocity_3d"
-    HEADING    = "heading"
-
-
-class InputName(StrEnum) :
-
-    HEADING           = "heading"
-    VELOCITY1D        = "velocity_1d"  # longitudinal velocity
-    VELOCITY2D        = "velocity_2d"
-    ACCELERATION2D    = "acceleration_2d"
-    VELOCITY3D        = "velocity_3d"  
-    ACCELERATION3D    = "acceleration_3d"  
-    TURNING_RATE      = "turning_rate"   # 1d version of angular velocity
-    STEERING_ANGLE    = "steering_angle"
-    ANGULAR_VELOCITY  = "angular_velocity"
-    TORQUE            = "torque"
-
-
-
-
 
 FREQUENCY = 10 # hz
 
@@ -82,36 +58,7 @@ def get_id_from_name(name:str)-> UniqueIdentifier|None:
         return int(splitted_name[1]) # index of the 
 
 
-class MXDict(dict):
-    """
-    MXDict - A dictionary that only accepts casadi.MX objects as values and StateNames according to the enumerator StateNames.
-    
-    The class is created to contain the substates of the dynamical system. For example a dynamical system is composed of 
-    substates like position, heading, velocity, etc. The substates are stacked in the given order to give the state vector.
-    """
-    def __init__(self, iterable = {}):
-        for key,item in iterable:
-            if not is_casadiMX(item):
-                raise TypeError(f"Expected casadi.MX, got {type(item)}")
-            if not (key in StateName):
-                raise TypeError(f"Expected input name from  StateName, got {type(key)}")
 
-        super().__init__(iterable)
-    
-    def __setitem__(self, key, item):
-        if not is_casadiMX(item):
-            raise TypeError(f"Expected casadi.MX, got {type(item)}")
-        if not (key in StateName):
-            raise TypeError(f"Expected input name from StateName, got {type(key)}")
-        dict.__setitem__(self, key,item)
-        
-    
-    def __getitem__(self, key):
-        try :
-            return dict.__getitem__(self, key)
-        except : 
-            raise KeyError(f"The requested key {key} is not available in this MXDict. Availbale name are are {list(self.__dict__.keys())}")
-        
     
 class DynamicalModel(ABC):
     """
@@ -518,11 +465,19 @@ class DifferentialDrive(DynamicalModel):
         if  self._max_angular_velocity  <= 0:
             raise ValueError("Max angular velocity must be positive.")
         
-
-
+        
+        #input vector
+        self._input_vector = ca.MX.sym(wrap_name("input",self._unique_identifier),2)
+        #state vector
+        self._state_vector = ca.MX.sym(wrap_name("state",self._unique_identifier),3)
+        
+        # separate inputs
+        self._velocity     = self._input_vector[0]
+        self._turning_rate = self._input_vector[1]
+        
         # create the state variables. Node that a unique unique_identifier is given for debugging purposes (KEEP THIS TEMPLATE)
-        self._position = ca.MX.sym(wrap_name(StateName.POSITION2D,self._unique_identifier), 2)
-        self._heading  = ca.MX.sym(wrap_name(StateName.HEADING,self._unique_identifier))
+        self._position = self._state_vector[:2]
+        self._heading  = self._state_vector[2]
 
         # create dynamics model
         row1 = ca.horzcat(ca.cos(self._heading), -self._look_ahead_distance*ca.sin(self._heading))
@@ -531,14 +486,6 @@ class DifferentialDrive(DynamicalModel):
         self._g = ca.vertcat(row1,row2,row3)
         self._f = ca.vertcat(0,0,0)
 
-        # control input
-        self._turning_rate = ca.MX.sym(wrap_name(InputName.TURNING_RATE,self._unique_identifier)) # tunring rate
-        self._velocity = ca.MX.sym(wrap_name(InputName.VELOCITY1D,self._unique_identifier)) # longintudinal velocity
-
-        #input vector
-        self._input_vector = ca.vertcat(self._velocity,self._turning_rate)
-        #state vector
-        self._state_vector = ca.vertcat(self._position,self._heading)
         #the order must respect the one given in the state and input vector!
         self._input_constraints_A, self._input_constraints_b,self._input_constraints_vertices = create_box_constraint_function([[-self._max_speed, self._max_speed], [-self._max_angular_velocity, self._max_angular_velocity]])    
         self._step_fun = self._get_step_function( rk4Steps=3) # created at initalization
@@ -593,12 +540,6 @@ class DifferentialDrive(DynamicalModel):
     def input_constraints_b(self)->ca.MX:
         """Vector of the input constraints Au<=b"""
         return self._input_constraints_b
-
-    def g_value(self,state:np.ndarray)->np.ndarray:
-        return np.asarray(self._g_fun(state))
-    
-    def f_value(self,state:np.ndarray)->np.ndarray:
-        return np.asarray(self._f_fun(state))
     
     
 
@@ -618,23 +559,18 @@ class SingleIntegrator2D(DynamicalModel):
         if self._max_velocity <= 0:
             raise ValueError("Max velocity must be positive.")
         
-        self._substates_dict = MXDict()
-
-        # create the state variables
-        self._position = ca.MX.sym(wrap_name(StateName.POSITION2D,self._unique_identifier), 2)
-        self._substates_dict[StateName.POSITION2D] = self._position
-
+        
+        #input vector
+        self._input_vector = ca.MX.sym(wrap_name("input",self._unique_identifier), 2)
+        #state vector
+        self._state_vector = ca.MX.sym(wrap_name("state",self._unique_identifier), 2)
+        
         # create dynamics model
         self._g = np.eye(2)
         self._f = ca.vertcat(0,0)
         
         # control input
-        self._velocity = ca.MX.sym(wrap_name(InputName.VELOCITY2D,self._unique_identifier),2)
-
-        #input vector
-        self._input_vector = self._velocity
-        #state vector
-        self._state_vector = self._position
+        self._position = self._state_vector
 
         self._input_constraints_A, self._input_constraints_b,self._input_constraints_vertices = create_approximate_ball_constraints2d(radius=self._max_velocity,points_number=40)
         self._step_fun = self._get_step_function(rk4Steps=3) # created at initalization
@@ -665,10 +601,6 @@ class SingleIntegrator2D(DynamicalModel):
     def dynamics_exp(self) -> ca.MX:
         return self._f + self._g @ self._input_vector
 
-    @property
-    def substates_dict(self) -> MXDict:
-        return self._substates_dict
-    
     
     @property
     def input_constraints_A(self)->ca.MX:
@@ -706,25 +638,24 @@ class DoubleIntegrator2D(DynamicalModel):
         if self._max_acceleration <= 0:
             raise ValueError("Max velocity must be positive.")
         
-        self._substates_dict = MXDict()
+        
+        self._state_vector = ca.MX.sym(wrap_name("state",self._unique_identifier), 4)
+        self._input_vector = ca.MX.sym(wrap_name("input",self._unique_identifier),2)
         
         # create the state variables
-        self._position = ca.MX.sym(wrap_name(StateName.POSITION2D,self._unique_identifier), 2)
-        self._velocity = ca.MX.sym(wrap_name(StateName.VELOCITY2D,self._unique_identifier), 2)
+        self._position = self._state_vector[:2]
+        self._velocity = self._state_vector[2:]
 
         # create dynamics model
         self._g = ca.vertcat(np.zeros((2,2)),np.eye(2))
         self._f = ca.vertcat(self._velocity,0,0) # no state drift
         
-        # control input
-        self._acceleration = ca.MX.sym(wrap_name(InputName.ACCELERATION2D,self._unique_identifier),2)
+        A,B,vertices = create_approximate_ball_constraints2d(radius = self._max_acceleration,points_number=40)
         
-        #input vector
-        self._input_vector = self._acceleration
-        #state vector
-        self._state_vector = ca.vertcat(self._position,self._velocity)
-
-        self._input_constraints_A, self._input_constraints_b,self._input_constraints_vertices= create_approximate_ball_constraints2d(radius = self._max_acceleration,points_number=40)
+        self._input_constraints_A = A
+        self._input_constraints_b = B
+        self._input_constraints_vertices = vertices
+        
         self._step_fun = self._get_step_function(rk4Steps=3) # created at initalization
 
 

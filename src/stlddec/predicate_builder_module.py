@@ -1,25 +1,14 @@
 import numpy as np
-from   matplotlib.patches import Ellipse
 import casadi as ca
 import polytope as pc
+from   typing import TypeAlias
+from abc import ABC
 
-
-
-import numpy as np
-import casadi as ca
-from   typing import Self
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-
-from  .dynamical_models import StateName
-from  .dynamical_models import DynamicalModel
-from typing import TypeAlias
+from .temporal import TemporalOperator
 
 UniqueIdentifier : TypeAlias = int # identifier of a single agent in the system
 
-
-# some support functions    
-
+# Some support functions    
 def first_word_before_underscore(string: str) -> str:
     """split a string by underscores and return the first element"""
     return string.split("_")[0]
@@ -106,215 +95,37 @@ def get_id_from_input_name(input_name: str) -> UniqueIdentifier:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #################################################################
 
-
-
-
-class TimeInterval() :
-    """time interval class"""
-    # empty set is represented by a double a=None b = None
-    def __init__(self,a:float|int|None = None,b:float|int|None =None) -> None:
-        
-        
-        
-        if any([a==None,b==None]) and (not all(([a==None,b==None]))) :
-            raise ValueError("only empty set is allowed to have None Values for both the extreems a and b of the interval. Please revise your input")
-        elif  any([a==None,b==None]) and (all(([a==None,b==None]))) : # empty set
-            self._a = a
-            self._b = b
-        else :    
-            # all the checks 
-            if (not isinstance(a,float)) and  (not isinstance(a,int)) :
-                raise ValueError("the input a must be a float or int")
-            elif a<0 :
-                raise ValueError("extremes of time interval must be positive")
-            
-            # all the checks 
-            if (not isinstance(b,float)) and  (not isinstance(b,int)) :
-                raise ValueError("the input b must be a float or int")
-            elif b<0 :
-                raise ValueError("extremes of time interval must be non negative")
-            
-            if a>b :
-                raise ValueError("Time interval must be a couple of non decreasing time instants")
-         
-        self._a = a
-        self._b = b
-        
-    @property
-    def a(self):
-        return self._a
-    @property
-    def b(self):
-        return self._b
-    
-    @property
-    def measure(self) :
-        if self.isEmpty() :
-            return None # empty set has measure None
-        return self._b - self._a
-    
-    @property
-    def aslist(self) :
-        return [self._a,self._b]
-    
-    def isEmpty(self)-> bool :
-        if (self._a == None) and (self._b == None) :
-            return True
-        else :
-            return False
-        
-    def isSingular(self)->bool:
-        a,b = self._a,self._b
-        if a==b :
-            return True
-        else :
-            return False
-    
-    def __lt__(self,timeInt:"TimeInterval") -> "TimeInterval":
-        """strict subset relations self included in timeInt ::: "TimeInterval" < timeInt """
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
-        
-        if self.isEmpty() and (not timeInt.isEmpty()) :
-            return True
-        elif (not self.isEmpty()) and timeInt.isEmpty() :
-            return False
-        elif  self.isEmpty() and timeInt.isEmpty() : # empty set included itself
-            return True
-        else :
-            if (a1<a2) and (b2<b1): # condition for intersectin without inclusion of two intervals
-                return True
-            else :
-                return False
-    
-    def __eq__(self,timeInt:"TimeInterval") -> bool:
-        """ equality check """
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
-        
-        if a1 == a2 and b1 == b2 :
-            return True
-        else :
-            return False
-        
-    def __ne__(self,timeInt:"TimeInterval") -> bool :
-        """ inequality check """
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
-        
-        if a1 == a2 and b1 == b2 :
-            return False
-        else :
-            return True
-        
-    def __le__(self,timeInt:"TimeInterval") -> "TimeInterval" :
-        """subset relations self included in timeInt  ::: "TimeInterval" < timeInt """
-        
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
-        
-        if self.isEmpty() and (not timeInt.isEmpty()) :
-            return True
-        elif (not self.isEmpty()) and timeInt.isEmpty() :
-            return False
-        elif  self.isEmpty() and timeInt.isEmpty() : # empty set included itself
-            return True
-        else :
-            if (a1<=a2) and (b2<=b1): # condition for intersectin without inclusion of two intervals
-                return True
-            else :
-                return False
-        
-    def __truediv__(self,timeInt:"TimeInterval") -> "TimeInterval" :
-        """interval Intersection"""
-        
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
-        
-        
-        # the empty set is already in this cases since the empty set is included in any other set
-        if timeInt<= self :
-            return TimeInterval(a =timeInt.a, b = timeInt.b)
-        elif self<= timeInt :
-            return TimeInterval(a =self._a, b = self._b)
-        else : # intersection case
-            if (b1<a2) or (b2<a1) : # no intersection case
-                return TimeInterval(a = None, b = None)
-            elif (a1<=a2) and (b1<=b2) :
-                return TimeInterval(a = a2, b = b1)
-            else :
-                return TimeInterval(a = a1, b = b2)
-    
-    
-    
-    def __str__(self):
-        return f"[{self.a},{self.b}]"
-    
-    
-    
-    def epsilonRightShrink(self)-> None :
-        """ machine precision shrinkig of the time interval on the right hand side"""
-        
-        if self.isEmpty() :
-            return self
-        else :
-            dt = 2**(-52 + np.floor(np.log2(self._b))) # machine precision difference
-            if self._b<= dt :
-                raise Exception("Not possible to shrink. The right extreme would be negative after shrinking")
-            else :
-                self._b = self._b - dt
-                
-    
-    def epsilonRightShrink(self)-> None :
-        """ machine precision shrinkig of the time interval on the left hand side"""
-        if self.isEmpty() :
-            return self
-        else :
-            dt = 2**(-52 + np.floor(np.log2(self._b))) # machine precision difference
-            self._b = self._b + dt
-
-    def getCopy(self) :
-        return TimeInterval(a = self.a, b=self.b)
-    
-
-class PolytopicPredicate() :
+class PolytopicPredicate(ABC):
     """Class to define polytopic predicate containing the origin"""
-    def __init__(self,A: np.ndarray,b : np.ndarray, center : np.ndarray, isParametric : bool=False) -> None:
-        
+    def __init__(self, polytope_0: pc.Polytope , 
+                       center:     np.ndarray, 
+                       is_parametric: bool=False) -> None:
+        """_summary_
+
+        Args:
+            polytope_0 (pc.Polytope):  zero centered polytope 
+            center (np.ndarray):       polytope center
+            is_parametric (bool, optional): defines is a predicate has to be considered parametric or not. Defaults to False.
+
+        Raises:
+            RuntimeError: _description_
+        """
         
         
         # when the predicate is parameteric, then the center is assumed to be the one assigned to the orginal predicate from which the predicate is derived for the decomspotion
+        
+        if center.ndim == 1:
+            center = center.expand_dims(1) 
+            
 
-        A,b = normalForm(A,b) # translate in nromal form
-        self._polytope   = pc.Polytope(A,b) # zero centered polygone
+        self._polytope   = polytope_0
+        if self._polytope.contains(np.zeros((self._polytope.A.shape[0],1))):
+            raise ValueError("The center of the polytope must be inside the polytope")
+        
         self._center     = center # center of the polygone
-        self._numHyperplanes , self._stateSpaceDim = np.shape(A)
+        self._num_hyperplanes , self._state_space_dim = np.shape(A)
         
         
         # turn the center as a column
@@ -322,25 +133,22 @@ class PolytopicPredicate() :
             self._center = self._center[:,np.newaxis]
             
         try :
-            self._vertices    = pc.extreme(self._polytope).T
-            self._numVertices = len(self._vertices[0,:]) 
+            self._vertices    = [ np.expand_dims(vertex,1) for vertex in  [*pc.extreme(self._polytope)]    ] # unpacks vertices as a list of column vectors
+            self._num_vertices = len(self._vertices) 
         except:
-            raise RuntimeError("There was an error in the computation of the vertives for the polytope. Make sure that your polytope is closed since this is the main source of failure for the algorithm")
+            raise RuntimeError("There was an error in the computation of the vertices for the polytope. Make sure that your polytope is closed since this is the main source of failure for the algorithm")
 
-        self._isParametric     = isParametric
+        self._is_parametric     = is_parametric
     
     @property
-    def stateSpaceDim(self)-> int:
-        return self._stateSpaceDim
+    def state_space_dim(self)-> int:
+        return self._state_space_dim
     @property
     def vertices(self) -> np.ndarray:
         return self._vertices
     @property
-    def verticesStaked(self) :
-        return self.verticesStaked
-    @property
-    def numVerices(self):
-        return self._numVertices
+    def num_verices(self):
+        return self._num_vertices
     @property
     def polytope(self):
         return self._polytope
@@ -354,186 +162,188 @@ class PolytopicPredicate() :
     def b(self):
         return self._polytope.b
     @property
-    def numHyperplanes(self):
-        return self._numHyperplanes
+    def num_hyperplanes(self):
+        return self._num_hyperplanes
     @property
-    def isParametric(self) :
-        return self._isParametric
-    
-    
+    def is_parametric(self) :
+        return self._is_parametric
     
 
-class StlTask( ) :
+class IndependentPredicate(PolytopicPredicate):
+    def __init__(self,polytope_0: pc.Polytope , 
+                      center:     np.ndarray, 
+                      agent_id: UniqueIdentifier,
+                      is_parametric: bool=False) -> None:
+        
+        # initialize parent predicate
+        super().__init(polytope_0 ,center,is_parametric)
+        
+        self._contributing_agents = [agent_id]
+        
+        
+class CollaborativePredicate(PolytopicPredicate):
+    def __init__(self,polytope_0: pc.Polytope , 
+                      center:     np.ndarray, 
+                      source_agent_id: UniqueIdentifier,
+                      target_agent_id: UniqueIdentifier,
+                      is_parametric: bool=False) -> None:
+        
+        # initialize parent predicate
+        super().__init(polytope_0 ,center,is_parametric)
+        
+        self._source_agent_id = source_agent_id
+        self._target_agent_id  = target_agent_id
+        
+        
+    def flip(self):
+        """Flips the direction of the predicate"""
+        
+        # A @ (x_i-x_j - c) <= b   =>  A @ (e_ij - c) <= b 
+        # becomes 
+        # A @ (x_j-x_i + c) >= -b   =>  -A @ (e_ji + c) <= b  =>  A_bar @ (e_ji - c_bar) <= b
+        
+        # swap the source and target
+        dummy = self._target_agent_id
+        self._target_agent_id = self._source_agent_id
+        self._source_agent_id = dummy
+        
+        # change center direction of the predicate
+        self._center = -self._center
+        # change matrix A
+        self._polytope = pc.Polytope(-self._polytope.A,self._polytope.b)
+        
+    @property
+    def source_agent(self):
+        return self._source_agent_id
+    @property
+    def target_agent(self):
+        return self._target_agent_id
+    @property
+    def contributing_agents(self):
+        return [self._source_agent_id,self._target_agent_id]
+        
+
+class StlTask:
+    """STL TASK"""
     
-    def __init__(self,temporalOperator:str,
-                 timeinterval:TimeInterval,
-                 predicate:PolytopicPredicate,
-                 source:int = None,
-                 target:int = None,
-                 timeOfSatisfaction:int=None):
+    def __init__(self,temporal_operator:TemporalOperator, predicate:PolytopicPredicate):
         
-        """ 
-        Input
-        ------------------------------------------------------------------------------------------
-        temporalOperator  (str)                    :
-        timeinterval      (timeInterval)           :
-        predicateFunction (convexPredicateFunction :
-        
-        Note : When a predicate function is not assigned, the attribute "isParametric" will be set to 1. This 
-               entails that the predicate will be defined through optimization.
+        """
+        Args:
+            temporal_operator (TemporalOperator): temporal operator of the task (includes time interval)
+            predicate (PolytopicPredicate): predicate of the task
         """
         
         # if a predicate function is not assigned, it is considered that the predicate is parametric
         
-        
         self._predicate              :PolytopicPredicate  = predicate
-        self._approximationAvailable :bool                = False
+        self._temporal_operator      :TemporalOperator    = temporal_operator
+        self._parent_task            :"StlTask"           = None  # instance of the parent class
         
-        # when the task is parametric, these variables will be defined
-        self._centerVar     :ca.MX = None # center the parameteric formula
-        self._scaleVar      :ca.MX = None # scale for the parametric formula
-        self._etaVar        :ca.MX = None # just the stacked version of the center and scale
-        self._concensusVar  :ca.MX = None # concensus variable for the given task
-        self._sourceNode    :int   = source
-        self._targetNode    :int   = target
-        
-        
-        # set temporal prefix
-        if temporalOperator!= "always" and temporalOperator!= "eventually" :
-            raise Exception("Only 'eventually' and 'always' temporalPrefixs are accepted")
-        else :
-            self._temporalOperator   = temporalOperator # always or eventually
-        
-        if timeinterval.isEmpty() :
-            raise NotImplementedError("Sorry, empty time intervals are not currently supported by this class")
-        self._timeInterval  = timeinterval
-        
-        if temporalOperator =="always":
-            
-            self._timeOfSatisfaction = timeinterval.a 
-            self._timeOfRemotion = timeinterval.b
-        else :
-            if timeOfSatisfaction == None :
-                raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{timeinterval.a},{timeinterval.b}]")
-            elif timeOfSatisfaction<timeinterval.a or timeOfSatisfaction>timeinterval.b :
-                raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{timeinterval.a},{timeinterval.b}]")
-            else :
-                self._timeOfSatisfaction = timeOfSatisfaction
-                self._timeOfRemotion     = timeOfSatisfaction
-        
-        self._isInitialised = False                                   # check if the variables for the optimization where intialised
-        
-        
-    """STL formula class"""
-    
     @property
     def predicate(self):
         return self._predicate
     @property
-    def temporalOperator(self):
-        return self._temporalOperator
+    def temporal_operator(self):
+        return self._temporal_operator
     @property
-    def timeInterval(self):
-        return self._timeInterval      
+    def state_space_dimension(self):
+        return self._predicate.state_space_dim     
     @property
-    def stateSpaceDimension(self):
-        return self._predicate.stateSpaceDim     
+    def is_parametric(self):
+        return self._predicate.is_parametric  
     @property
-    def isParametric(self):
-        return self._predicate.isParametric  
+    def parent_task_id(self):
+        if self._parent_task_id is None :
+            raise ValueError("The task does not have a parent task specified")
+        return self._parent_task_id
     @property
-    def sourceNode(self) :
-        return self._sourceNode
-    @property
-    def targetNode(self):
-        return self._targetNode
-    @property
-    def timeOfSatisfaction(self):
-        return self._timeOfSatisfaction
-    @property
-    def timeOfRemotion(self):
-        return self._timeOfRemotion
-    @property
-    def sourceTarget(self):
-        return (self._sourceNode,self._targetNode)
-    @sourceTarget.setter
-    def sourceTarget(self,source:int,target:int) :
-        self._sourceNode = source
-        self._targetNode = target
+    def parent_task_center(self):
+        if self._parent_task_center.size == 0 :
+            raise ValueError("The task does not have a parent task specified")
+        return self._parent_task_center
     
-    @property
-    def hasUndefinedDirection(self):
-        return ((self.sourceNode==None) or (self.targetNode == None))
-    
-    
-    @property
-    def center(self) : # if the task is parameteric then you get a variable, otherwise you get the true center
-        if self.isParametric :
-            if self._isInitialised :
-                return self._centerVar #ca.MX
-            else :
-                raise RuntimeError("The predicate seems to be parametric but the variables where not initialised. plase make sure yoiu called the method setOptimizationVariables before calling the center")
-        else:
-            return self._predicate.center # np.array()
-    @property 
-    def scale(self) :
-        if self.isParametric :
-            if self._isInitialised :
-                return self._scaleVar #ca.MX
-            else :
-                raise RuntimeError("The predicate seems to be parametric but the variables where not initialised. plase make sure yoiu called the method setOptimizationVariables before calling the center")
-        else:
-            return 1 
-        
-    @property
-    def originalCenter(self):
-        if self.isParametric :
-            return self._predicate.center # when the predicate is parameteric, then the center assigned to the predicate is assumed the one of the orginal predicate from which the orginal derives from
-        else :
-            raise RuntimeError("The task is not parametric and thus there is no orginal center. You can ask for the property ""center"" to get the center of the task predicate directly. This property is only from parameteric predicates")
-      
-      
-      
     def flip(self) :
         """Flips the direction of the predicate"""
-        # swap the source and target
-        dummy = self._targetNode
-        self._targetNode = self._sourceNode
-        self._sourceNode = dummy
+        self._predicate.flip()
         
-        # change center direction of the predicate
-        self._predicate._center = -self._predicate._center # change the direction of the predicate
-        # self._centerVar = - self._centerVar
+    def set_parent_task_specs(self,parent_task_id: int,parent_task_center:np.ndarray)-> None:
         
-    def setAsParametric(self) :
-        self._isParametric = True
+        if not self._predicate.is_parametric :
+            raise Warning("The task is not parametric. The parent task setting will be ignored")
         
-    def setOptimizationVariables(self,optimizer: ca.Opti) :
-        """Sets the optimization variables center and scale"""
+        if not isinstance(parent_task_id,int) :
+            raise ValueError("The parent task ID must be an integer")
         
-        if self.isParametric :
-            self._centerVar     = optimizer.variable(self.predicate.stateSpaceDim,1)                            # center the parameteric formula
-            self._scaleVar      = optimizer.variable(1)                                                         # scale for the parametric formula
-            self._etaVar        = ca.vertcat(self._centerVar,self._scaleVar)                                    # optimization variable
-            self._isInitialised = True                                                                          # flag for initialization
-            
-        else :
-            raise NotImplementedError("The formula seems to not be parameteric. If you want to set parameters for this formula make sure to set isParameteric to True")
-
-def createParametericTaskFrom(task : StlTask, source:int, target : int) -> StlTask :
+        self._parent_task_id = parent_task_id
+        self._parent_task_center = parent_task_center
     
-    newParametericTask = StlTask(temporalOperator= task.temporalOperator,
-                                 timeinterval    = task.timeInterval.getCopy(),
-                                 predicate       = PolytopicPredicate(A=task.predicate.A,b = task.predicate.b,center=task.predicate.center,isParametric=True),
-                                 source          = source,
-                                 target          = target,
-                                 timeOfSatisfaction = task.timeOfSatisfaction)
     
-    return newParametericTask 
+    
+    
+
+def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:UniqueIdentifier, target_agent_id : UniqueIdentifier) -> StlTask :
+    """Creates a parametric collaborative task from a given collaborative task, with anew source and target agents"""
+    
+    if isinstance(task.predicate,IndependentPredicate) :
+        raise ValueError("The task is not a collaborative task. Individual tasks are not supported")
+    
+    polytope          = task.predicate.polytope
+    center            = task.predicate.center
+    temporal_operator = task.temporal_operator
+    
+    predicate =  CollaborativePredicate(polytope_0      = polytope , 
+                                  center          = center, 
+                                  source_agent_id = source_agent_id,
+                                  target_agent_id = target_agent_id,
+                                  is_parametric   = True)
+    
+    child_task:StlTask = StlTask(temporal_operator = temporal_operator, predicate = predicate)
+    child_task.set_parent_task_specs(parent_task_id = task.parent_task_id, parent_task_center = task.parent_task_center)
+    
+    
+    return child_task
 
 
 
-def random2DPolygone(numberHyperplanes : int, distanceFromCenter: float,center:np.ndarray) -> PolytopicPredicate:
+
+
+def get_M_and_Z_matrices_from_inclusion(P_including:StlTask|PolytopicPredicate, P_included:StlTask|PolytopicPredicate) -> tuple[np.ndarray,np.ndarray]:
+    
+    if isinstance(P_including,StlTask) :
+        P_including = P_including.predicate
+    if isinstance(P_included,StlTask) :
+        P_included = P_included.predicate
+    
+    
+    vertices        = P_included.vertices
+    num_vertices    = P_included.num_vertices
+    state_space_dim = P_included.state_space_dim
+    
+    M = []
+    for vertex in vertices:
+        G_k = np.hstack((np.eye(state_space_dim),vertex))
+        M.append(P_including.polytope.A@ G_k)
+    
+    M     = np.vstack(M)
+    A_bar = np.hstack((P_including.polytope.A, P_including.polytope.b))
+    Z     = np.outer(np.ones((num_vertices,1)),A_bar)    
+    
+    return M,Z
+
+def communication_consistency_matrices_for(task:StlTask) -> list[np.ndarray]:
+    
+    vertices = task.predicate.vertices
+    
+    N = []
+    for vertex in vertices:
+        Nk = vertex.T@vertex
+        N += [Nk]
+    
+    return  N
+
+
+def random_2D_polytope(numberHyperplanes : int, distanceFromCenter: float,center:np.ndarray) -> PolytopicPredicate:
     
     numberHyperplanes = int(numberHyperplanes) # convert to int
     
@@ -559,9 +369,7 @@ def random2DPolygone(numberHyperplanes : int, distanceFromCenter: float,center:n
     
 
 
-
-
-def regular2DPolygone(numberHyperplanes : int, distanceFromCenter: float,center:np.ndarray) -> PolytopicPredicate :
+def regular_2D_polytope(numberHyperplanes : int, distanceFromCenter: float,center:np.ndarray) -> PolytopicPredicate :
     
     numberHyperplanes = int(numberHyperplanes) # convert to int
     
@@ -582,7 +390,7 @@ def regular2DPolygone(numberHyperplanes : int, distanceFromCenter: float,center:
 
 
 
-def normalForm(A : np.ndarray,b : np.ndarray) :
+def normal_form(A : np.ndarray,b : np.ndarray) :
     
     
     for jj in range(len(b)) :
@@ -598,13 +406,12 @@ def normalForm(A : np.ndarray,b : np.ndarray) :
     return A,b
 
 
-def rotMatrix2D(angle:float):
+def rotation_matrix_2D(angle:float):
     """rotation angle in radians"""
     R = np.array([ np.cos(angle),np.sin(angle),
                   -np.sin(angle),np.cos(angle)])
     
              
-
 if __name__ =="__main__" :
     pass
     
