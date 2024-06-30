@@ -438,7 +438,15 @@ class IndependentPredicate(PolytopicPredicate):
         super().__init(polytope_0 ,center,is_parametric)
         
         self._contributing_agents = [agent_id]
-        
+        self._agent_id = agent_id
+    
+    @property
+    def contributing_agents(self):
+        return [self._agent_id]
+    @property
+    def agent_id(self):
+        return self._agent_id
+    
         
 class CollaborativePredicate(PolytopicPredicate):
     def __init__(self,polytope_0: pc.Polytope , 
@@ -454,6 +462,16 @@ class CollaborativePredicate(PolytopicPredicate):
         self._target_agent_id  = target_agent_id
         
         
+    @property
+    def source_agent(self):
+        return self._source_agent_id
+    @property
+    def target_agent(self):
+        return self._target_agent_id
+    @property
+    def contributing_agents(self):
+        return [self._source_agent_id,self._target_agent_id]
+    
     def flip(self):
         """Flips the direction of the predicate"""
         
@@ -470,16 +488,6 @@ class CollaborativePredicate(PolytopicPredicate):
         self._center = - self._center
         # change matrix A
         self._polytope = pc.Polytope(-self._polytope.A,self._polytope.b)
-        
-    @property
-    def source_agent(self):
-        return self._source_agent_id
-    @property
-    def target_agent(self):
-        return self._target_agent_id
-    @property
-    def contributing_agents(self):
-        return [self._source_agent_id,self._target_agent_id]
         
 
 class StlTask:
@@ -513,7 +521,7 @@ class StlTask:
         return self._predicate.is_parametric  
     @property
     def parent_task_id(self):
-        if self._parent_task_id is None :
+        if self._parent_task is None :
             raise ValueError("The task does not have a parent task specified")
         return id(self._parent_task)
     

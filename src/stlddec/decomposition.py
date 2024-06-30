@@ -1,9 +1,9 @@
 import numpy as np
 import casadi as ca
 from itertools import chain,combinations
-from .predicate_builder_module import * 
-from .transport import Message,Publisher
-from .temporal import TimeInterval,AlwaysOperator,EventuallyOperator
+from .stl_task import * 
+from .transport import Publisher
+from .graphs import *
 from   typing import Self
 import networkx as nx 
 import matplotlib.pyplot as plt 
@@ -27,30 +27,6 @@ def powerset(iterable):
     s = list(iterable)
     return chain.from_iterable(combinations(s, r) for r in range(1,len(s)+1))
 
-class EdgeDict(dict):
-    """Helper dictionary class: takes undirected edges as input keys only"""
-    def _normalize_key(self, key):
-        if not isinstance(key, tuple):
-            raise TypeError("Keys must tuples of type (int,int)")
-        if not len(key) == 2:
-            raise TypeError("Keys must tuples of type (int,int)")
-        return tuple(sorted(key))
-    
-    def __setitem__(self, key, value):
-        normalized_key = self._normalize_key(key)
-        super().__setitem__(normalized_key, value)
-
-    def __getitem__(self, key):
-        normalized_key = self._normalize_key(key)
-        return super().__getitem__(normalized_key)
-
-    def __delitem__(self, key):
-        normalized_key = self._normalize_key(key)
-        super().__delitem__(normalized_key)
-
-    def __contains__(self, key):
-        normalized_key = self._normalize_key(key)
-        return super().__contains__(normalized_key)
 
 
 
@@ -88,9 +64,9 @@ class TaskOptiContainer :
         
         coupling_constraint_size = self.task.predicate.num_hyperplanes*self.task.predicate.num_vertices # Size of the matrix M
         
-        self._consensus_param_neighbors_from_neighbors   = EdgeDict() # The value of the consensus parameters as computed and transmitted from the neighbors to this agent
-        self._consensus_param_neighbors_from_self        = EdgeDict() # The value of the consensus parameters as computed from the agent itself.
-        self._lagrangian_param_neighbors_from_neighbors  = EdgeDict() # value of the lagrangian optimal coefficients as computed from the agent.
+        self._consensus_param_neighbors_from_neighbors   = UndirectedEdgeMapping[np.ndarray]() # The value of the consensus parameters as computed and transmitted from the neighbors to this agent
+        self._consensus_param_neighbors_from_self        = UndirectedEdgeMapping[np.ndarray]() # The value of the consensus parameters as computed from the agent itself.
+        self._lagrangian_param_neighbors_from_neighbors  = UndirectedEdgeMapping[np.ndarray]() # value of the lagrangian optimal coefficients as computed from the agent.
         
         
         self._lagrangian_param_neighbors_from_self      = np.zeros((coupling_constraint_size,1)) # value of the lagrangian optimal coefficients as computed from the agent.
@@ -536,174 +512,19 @@ class EdgeComputingAgent(Publisher) :
                 task_container.update_lagrangian_variable_from_neighbor(edge=edge,lagrangian_variable= lagrangian_variable)
         
 
-   
 
-class GraphEdge( ) :
-    """class GraphEdge 
-    This class is useful to define attributes of the edges like STL predicate function, weights ...
-    
-    class attributes 
-    centerVar (cvx.) : edge cvx variable
-    nu      (cvx.Variable) : nu   cvx variable for hypercube stateSpaceDimensions
-    predicateFunction(function) : function wrapper for predicate function
-    """
-    
-    def __init__(self,source :int,target:int,isCommunicating :int= 0,weight:float=1) -> None:
-     
-      """ 
-      Input
-      ----------------------------------
-      weight          (float)  : weight of the edge for shortest path algorithms
-      isCommunicating (boolean) : 0 is a communicating edge, 1 is a communicating edge
-      """
-      
-     
-      if weight<=0 : # only accept positive weights
-          raise("Edge weight must be positive")
-      
-      self._isCommunicating          = isCommunicating
-      self._isInvolvedInOptimization = 0
-      
-      if not(self._isCommunicating) :
-          self._weight = float("inf")
-      else :
-          self._weight = weight
-          
-      self._tasksList = []  
-      self._task_containers = []
-      
-      if (not isinstance(source,int)) or (not isinstance(target,int)) :
-          raise ValueError("Target source pairs must be integers")
-      else :
-          self._sourceNode = source
-          self._targetNode = target
-      
-    @property
-    def tasksList(self) :
-        return self._tasksList
-    @property
-    def task_containers(self):
-        return self._task_containers
-    
-    @property
-    def isCommunicating(self) :
-      return self._isCommunicating 
-   
-    @property
-    def sourceNode(self) :
-        return self._sourceNode
-    @property
-    def targetNode(self) :
-        return self._targetNode
-  
-    @property
-    def isInvolvedInOptimization(self) :
-      return self._isInvolvedInOptimization
-  
-    @property
-    def weight(self):
-        return self._weight
-    @property
-    def hasSpecifications(self):
-        return bool(len(self._tasksList)) 
-
-    
-    @weight.setter
-    def weight(self,new_weight:float)-> None :
-        if not isinstance(new_weight,float) :
-            raise TypeError("Weight must be a float")
-        elif new_weight<0 :
-            raise ValueError("Weight must be positive")
-        else :
-            self._weight = new_weight
-    
-   
-    def _addSingleTask(self,inputTask : StlTask|TaskOptiContainer) -> None :
-        """ Set the tasks for the edge that has to be respected by the edge. Input is expected to be a list  """
-       
-        if not (isinstance(inputTask,StlTask) or isinstance(inputTask,TaskOptiContainer)) :
-            raise Exception("please enter a valid STL task object or a list of StlTask objects")
-        else :
-            if isinstance(inputTask,StlTask) :
-                # set the source node pairs of this node
-                if inputTask.hasUndefinedDirection :
-                    inputTask.sourceTarget(source=self._sourceNode,target=self._targetNode)
-                    self._task_containers.append(TaskOptiContainer(task=inputTask))
-                    self._tasksList.append(inputTask) # adding a single task
-                else :
-                    if ((self._sourceNode,self._targetNode) != (inputTask.sourceNode,inputTask.targetNode)) and  ((self._targetNode,self._sourceNode) != (inputTask.sourceNode,inputTask.targetNode)):
-                        raise Exception(f"Trying to add a task with defined source/target pair to an edge with different source/target pair. task has source/tarfet pair {inputTask.sourceTarget} and edge has {(self._sourceNode,self.targetNode)}")
-                    else :
-                        self._task_containers.append(TaskOptiContainer(task=inputTask))
-                        self._tasksList.append(inputTask) # adding a single task
-            
-            
-            elif isinstance(inputTask,TaskOptiContainer):
-                # set the source node pairs of this node
-                task = inputTask.task
-                if task.hasUndefinedDirection :
-                    task.sourceTarget(source=self._sourceNode,target=self._targetNode)
-                    self._task_containers.append(inputTask) # you add directly the task container
-                    self._tasksList.append(task) # adding a single task
-                else :
-                    if ((self._sourceNode,self._targetNode) != (task.sourceNode,task.targetNode)) and  ((self._targetNode,self._sourceNode) != (task.sourceNode,task.targetNode)):
-                        raise Exception(f"Trying to add a task with defined source/target pair to an edge with different source/target pair. task has source/tarfet pair {task.sourceTarget} and edge has {(self._sourceNode,self.targetNode)}")
-                    else :
-                        self._task_containers.append(inputTask)
-                        self._tasksList.append(task) # adding a single task
-            
-    
-    def addTasks(self,tasks : StlTask|TaskOptiContainer|list[StlTask]|list[TaskOptiContainer]):
-        if isinstance(tasks,list) : # list of tasks
-            for  task in tasks :
-                self._addSingleTask(task)
-        else :# single task case
-            self._addSingleTask(tasks)
-    
- 
-    def flagOptimizationInvolvement(self) -> None :
-        self._isInvolvedInOptimization = 1
-        
-    def cleanTasks(self)-> None :
-        del self._task_containers
-        del self._tasksList
-        
-        self._task_containers = []
-        self._tasksList      = []
-    
-        
-def computeWeights(source,taget,attributesDict) :
-    """takes the edge object from the attributes and returns the wight stored in there"""
-    return attributesDict["edgeObj"].weight    
-
-
-def findEdge(edgeList : list[GraphEdge],edge:tuple[int,int])-> GraphEdge :
-    
-    ij = edge
-    ji = (edge[1],edge[0])
-    for edgeObj in edgeList :
-        if (edgeObj.sourceNode,edgeObj.targetNode) == ij or (edgeObj.sourceNode,edgeObj.targetNode) == ji :
-            return edgeObj
-    
-    edgesString = ""
-    for edgeObj in edgeList :
-        edgesString += f"{(edgeObj.sourceNode,edgeObj.targetNode)}"
-    raise RuntimeError(f"The searched edge {edge} was not found. Available edges are : {edgesString}")
-
-
-def runTaskDecomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Graph,list[GraphEdge]):
+def run_task_decomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Graph,list[GraphEdge]):
     """Task decomposition pipeline"""
-    
             
     # create communication graph
-    commGraph = createCommunicationGraphFromEdges(edgeList=edgeList)
+    comm_graph         = create_communication_graph_from_edges(edgeList=edgeList)
     # create task graph
-    originalTaskGraph = createTaskGraphFromEdges(edgeList=edgeList)
+    original_task_graph = create_task_graph_from_edges(edgeList=edgeList)
     # create the agents for decomposition
-    decompositionAgents : dict[int,AgentTaskDecomposition] = {}
+    decompositionAgents : dict[int,EdgeComputingAgent] = {}
     
     # crate a computing node for each node in the graph
-    for node in commGraph.nodes :
+    for node in comm_graph.nodes :
         decompositionAgents[node] = AgentTaskDecomposition(agentID=node)
     
     pathList : list[int] =  []
@@ -713,7 +534,7 @@ def runTaskDecomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Gra
         if (not edgeObj.isCommunicating) and (edgeObj.hasSpecifications) : # decomposition needed
             # retrive all the tasks on the edge because such tasks will be decomposed
             tasksContainersToBeDecomposed: list[TaskOptiContainer] = edgeObj.task_containers
-            path = nx.shortest_path(commGraph,source=edgeObj.sourceNode,target = edgeObj.targetNode)
+            path = nx.shortest_path(comm_graph,source=edgeObj.sourceNode,target = edgeObj.targetNode)
             edgesThroughPath = edgeSet(path=path) # find edges along the path
             
             # update path list
@@ -755,18 +576,18 @@ def runTaskDecomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Gra
     for agent in decompositionAgents.values() :
         agent.setUpOptimizer(numIterations=numOptimizationIterations)
     
-    consensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents)# share current value of private lagrangian coefficients and auxiliary y variable
+    consensusRound(commGraph=comm_graph,decompositionAgents=decompositionAgents)# share current value of private lagrangian coefficients and auxiliary y variable
     # find solution
     for jj in range(numOptimizationIterations) :
         for agentID,agent in decompositionAgents.items() :
             if agent.is_initialized_for_optimization : #only computing agents should make computations 
                 agent.solveLocalProblem()
-        consensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents)
+        consensusRound(commGraph=comm_graph,decompositionAgents=decompositionAgents)
         # update y
         for agentID,agent in decompositionAgents.items() :
             if agent.is_initialized_for_optimization :
                 agent.updateY() # update the value of y
-        consensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents) # consensus before leaving
+        consensusRound(commGraph=comm_graph,decompositionAgents=decompositionAgents) # consensus before leaving
 
     fig,(ax1,ax2) = plt.subplots(1,2)
     for agentID,agent in decompositionAgents.items() :
@@ -793,7 +614,7 @@ def runTaskDecomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Gra
     # set the attributes
     nx.set_node_attributes(finalTaskGraph,nodesAttributes)
     
-    return commGraph,finalTaskGraph,originalTaskGraph
+    return comm_graph,finalTaskGraph,original_task_graph
 
 
     
@@ -962,26 +783,6 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
     
     
       
-def createCommunicationGraphFromEdges(edgeList : list[GraphEdge]) :
-    """ builts a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
-    
-    commGraph = nx.Graph()
-    for edge in edgeList :
-        if edge.isCommunicating : 
-            commGraph.add_edge(edge.sourceNode,edge.targetNode)
-    return commGraph
-
-def createTaskGraphFromEdges(edgeList : list[GraphEdge]) :
-    """ builts a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
-    
-    taskGraph = nx.Graph()
-    for edge in edgeList :
-        if edge.hasSpecifications : 
-            taskGraph.add_edge(edge.sourceNode,edge.targetNode)
-    return taskGraph
-    
-    
-    
 
 ########################################################################################################################### 
 # Visualization
