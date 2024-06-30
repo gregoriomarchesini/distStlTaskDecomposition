@@ -536,37 +536,7 @@ class EdgeComputingAgent(Publisher) :
                 task_container.update_lagrangian_variable_from_neighbor(edge=edge,lagrangian_variable= lagrangian_variable)
         
 
-
-
-def consensusRound(decompositionAgents : dict[int,AgentTaskDecomposition],commGraph: nx.DiGraph,yOnly:bool=False) :
-    """start an exchange of communication messages among the agents. This is a centralised simulation of what should happen in a decentralised way"""
-    
-    # we need this for loop to be run twice. One time for the active computing agents to share the information about the consensus parameters and one for the supporting agents to get the inforamtions to the two hop away agents
-    for round in range(2) :
-        for agentID,agent in decompositionAgents.items() :
-            
-            requests = agent.sendconsensusRequests() # compile requests
-            neigbours = list(commGraph.neighbors(agentID))
-
-            # simulate a communication round
-            
-            for request in requests :
-                for neigbour in neigbours :
-                    reply = decompositionAgents[neigbour].replyconsensusRequest(request=request)
-                    if reply != None : # if there is a reply (you don't get one if you sedn a message tp the wrong neigbour)
-                        print("---------request parameters--------")
-                        print("asker",request.senderID)
-                        print("edge  ",request.edge)
-                        print("taskID ,",request.taskID)
-                        print("---------reply parameters----------")
-                        print("replier",reply.senderID)
-                        print("edge  ",reply.edge)
-                        print("taskID ,",request.taskID)
-                        print("-----------------------------------")
-                        agent.unpackReponse(reply) # get the reply and update the variables accordingly
-                        break
    
-
 
 class GraphEdge( ) :
     """class GraphEdge 

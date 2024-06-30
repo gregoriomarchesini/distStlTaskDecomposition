@@ -1,5 +1,5 @@
-from .decomposition_module import *
-from .predicate_builder_module import *
+from .decomposition import *
+from .stl_task import *
 import casadi as ca
 
 class STLController():
