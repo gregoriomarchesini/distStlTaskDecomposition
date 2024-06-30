@@ -147,7 +147,7 @@ class PolytopicPredicate(ABC):
     def vertices(self) -> np.ndarray:
         return self._vertices
     @property
-    def num_verices(self):
+    def num_vertices(self):
         return self._num_vertices
     @property
     def polytope(self):
@@ -208,7 +208,7 @@ class CollaborativePredicate(PolytopicPredicate):
         self._source_agent_id = dummy
         
         # change center direction of the predicate
-        self._center = -self._center
+        self._center = - self._center
         # change matrix A
         self._polytope = pc.Polytope(-self._polytope.A,self._polytope.b)
         
@@ -256,30 +256,27 @@ class StlTask:
     def parent_task_id(self):
         if self._parent_task_id is None :
             raise ValueError("The task does not have a parent task specified")
-        return self._parent_task_id
+        return id(self._parent_task)
+    
     @property
-    def parent_task_center(self):
-        if self._parent_task_center.size == 0 :
+    def  parent_task(self):
+        if self._parent_task is None :
             raise ValueError("The task does not have a parent task specified")
-        return self._parent_task_center
+        return self._parent_task
     
     def flip(self) :
         """Flips the direction of the predicate"""
+        if not isinstance(self._predicate,CollaborativePredicate) :
+            raise ValueError("The task is not a collaborative task. Individual tasks cannot be flipped")
         self._predicate.flip()
         
-    def set_parent_task_specs(self,parent_task_id: int,parent_task_center:np.ndarray)-> None:
+    def set_parent_task(self,parent_task:"StlTask")-> None:
         
         if not self._predicate.is_parametric :
             raise Warning("The task is not parametric. The parent task setting will be ignored")
         
-        if not isinstance(parent_task_id,int) :
-            raise ValueError("The parent task ID must be an integer")
-        
-        self._parent_task_id = parent_task_id
-        self._parent_task_center = parent_task_center
-    
-    
-    
+        self._parent_task = parent_task
+       
     
 
 def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:UniqueIdentifier, target_agent_id : UniqueIdentifier) -> StlTask :
@@ -299,21 +296,18 @@ def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:Un
                                   is_parametric   = True)
     
     child_task:StlTask = StlTask(temporal_operator = temporal_operator, predicate = predicate)
-    child_task.set_parent_task_specs(parent_task_id = task.parent_task_id, parent_task_center = task.parent_task_center)
-    
+    child_task.set_parent_task(parent_task = task)
     
     return child_task
-
-
 
 
 
 def get_M_and_Z_matrices_from_inclusion(P_including:StlTask|PolytopicPredicate, P_included:StlTask|PolytopicPredicate) -> tuple[np.ndarray,np.ndarray]:
     
     if isinstance(P_including,StlTask) :
-        P_including = P_including.predicate
+        P_including : PolytopicPredicate = P_including.predicate
     if isinstance(P_included,StlTask) :
-        P_included = P_included.predicate
+        P_included : PolytopicPredicate = P_included.predicate
     
     
     vertices        = P_included.vertices
@@ -330,6 +324,8 @@ def get_M_and_Z_matrices_from_inclusion(P_including:StlTask|PolytopicPredicate, 
     Z     = np.outer(np.ones((num_vertices,1)),A_bar)    
     
     return M,Z
+
+
 
 def communication_consistency_matrices_for(task:StlTask) -> list[np.ndarray]:
     

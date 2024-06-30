@@ -1,8 +1,9 @@
 import numpy as np
 import casadi as ca
-import itertools
+from itertools import chain,combinations
 from .predicate_builder_module import * 
 from .transport import Message,Publisher
+from .temporal import TimeInterval,AlwaysOperator,EventuallyOperator
 from   typing import Self
 import networkx as nx 
 import matplotlib.pyplot as plt 
@@ -11,7 +12,21 @@ import polytope as poly
 import copy
 
 
+
+def edgeSet(path:list[int],isCycle:bool=False) -> list[(int,int)] :
     
+    if not isCycle :
+      edges = [(path[i],path[i+1]) for i in range(len(path)-1)]
+    elif isCycle : # due to how networkx returns edges
+      edges = [(path[i],path[i+1]) for i in range(-1,len(path)-1)]
+        
+    return edges
+
+def powerset(iterable):
+    "powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)"
+    s = list(iterable)
+    return chain.from_iterable(combinations(s, r) for r in range(1,len(s)+1))
+
 class EdgeDict(dict):
     """Helper dictionary class: takes undirected edges as input keys only"""
     def _normalize_key(self, key):
@@ -71,20 +86,29 @@ class TaskOptiContainer :
                                                           
         self._decomposition_path_length = decompositon_path_length # length of the path for the decomposition
         
-        coupling_constraint_size = self.task.predicate.num_hyperplanes*self.task.predicate.num_verices # Size of the matrix M
+        coupling_constraint_size = self.task.predicate.num_hyperplanes*self.task.predicate.num_vertices # Size of the matrix M
         
-        self._concensus_param_neighbors   = EdgeDict()
-        self._lagrangian_param            = np.zeros((coupling_constraint_size,1)) # self lagrangian multiplies
-        self._average_concensus_param     = np.zeros((coupling_constraint_size,1)) # average concensus parameter for the concesusn variable y
+        self._consensus_param_neighbors_from_neighbors   = EdgeDict() # The value of the consensus parameters as computed and transmitted from the neighbors to this agent
+        self._consensus_param_neighbors_from_self        = EdgeDict() # The value of the consensus parameters as computed from the agent itself.
+        self._lagrangian_param_neighbors_from_neighbors  = EdgeDict() # value of the lagrangian optimal coefficients as computed from the agent.
         
         
-        # Initialize concensus parameters and lagrangian multiplies 
+        self._lagrangian_param_neighbors_from_self      = np.zeros((coupling_constraint_size,1)) # value of the lagrangian optimal coefficients as computed from the agent.
+        
+        
+        self._average_consensus_param     = np.zeros((coupling_constraint_size,1)) # Average consensus parameter.
+        self._neighbor_edges              = neighbour_edges # list of neighbour edges
+        
+        # Initialize consensus parameters and lagrangian multiplies 
         for edge in neighbour_edges :
-            self._concensus_param_neighbors[edge]  = np.zeros((coupling_constraint_size,1)) # contains the concensus variable that this task has for each neighbour (\lambda_{ij} in paper)
+            self._consensus_param_neighbors_from_neighbors[edge]   = np.zeros((coupling_constraint_size,1)) # contains the consensus variable that this task has for each neighbour (\lambda_{ij} in paper)
+            self._consensus_param_neighbors_from_self[edge]        = np.zeros((coupling_constraint_size,1)) # contains the consensus variable that this task has for each neighbour (\lambda_{ji} in paper)
+            self._lagrangian_param_neighbors_from_neighbors[edge]  = np.zeros((coupling_constraint_size,1)) # lagrangian_coefficient from neighbur 
+            
             
         # Define shared constraint (will be used to retrive the lagrangian multipliers for it after the solution is found)
         self._task_constraint             : ca.MX = None # this the constraint that each agent has set for the particular task. This is useful to geth the langrangian multiplier
-        self._concensus_average_param     : ca.MX = None # average concensus parameter for the concesusn variable y
+        self._consensus_average_param     : ca.MX = None # average consensus parameter for the concesusn variable y
         
 
     @property
@@ -113,15 +137,19 @@ class TaskOptiContainer :
         else :
             raise RuntimeError("local constraint was not set. call the method ""saveConstraint"" in order to set a local constraint")
     @property
-    def concensus_param_neighbors(self):
-        return self._concensus_param_neighbors
+    def consensus_param_neighbors_from_neighbors(self):
+        return self._consensus_param_neighbors_from_neighbors
     
     @property
-    def concensus_average_param(self):
-        return self._concensus_average_param
+    def consensus_param_neighbors_from_self(self):
+        return self._consensus_param_neighbors_from_self
     
     @property
-    def decompostion_path_length(self):
+    def consensus_average_param(self):
+        return self._consensus_average_param
+    
+    @property
+    def decomposition_path_length(self):
         return self._decomposition_path_length
     
     
@@ -131,40 +159,82 @@ class TaskOptiContainer :
         self._scale_var  = opti.variable(1)                                                         # scale for the parametric formula
         self._eta_var     = ca.vertcat(self._center_var,self._scale_var)                                    # optimization variable
         
-        coupling_constraint_size      = self.task.predicate.num_hyperplanes*self.task.predicate.num_verices # Size of the matrix M
-        self._average_concensus_param = opti.parameter(coupling_constraint_size,1) # average concensus parameter for the concesusn variable y
+        coupling_constraint_size      = self.task.predicate.num_hyperplanes*self.task.predicate.num_vertices # Size of the matrix M
+        self._average_consensus_param = opti.parameter(coupling_constraint_size,1) # average consensus parameter for the concesusn variable y
         self._is_initialized          = True
 
     def set_task_constraint_expression(self, constraint : ca.MX) -> None :
         """Save the constraint for later retrieval of the lagrangian multipliers"""
         self._task_constraint   :ca.MX         = constraint
     
+    def update_consensus_variable_from_neighbor(self,edge:tuple[int,int],consensus_variable:np.ndarray) -> None :
+         self._consensus_param_neighbors_from_neighbors[edge] = consensus_variable
+        
+    def update_consensus_variable_from_self(self,edge:tuple[int,int],consensus_variable:np.ndarray,learning_rate:float) -> None :
+        self._consensus_param_neighbors_from_self[edge] -= (self._lagrangian_param_neighbors_from_self[edge] - self._lagrangian_param_neighbors_from_neighbors[edge])*learning_rate
+         
+    def update_lagrangian_variable_from_neighbor(self,edge:tuple[int,int],lagrangian_variable:np.ndarray) -> None :
+         self._lagrangian_param_neighbors_from_neighbors[edge] = lagrangian_variable
     
-    def update_concensus_variable_of_neighbour_edge(self, edge: tuple[int,int], lagrangian_coefficients_neighbor: np.ndarray,learning_rate:float) -> None :
-        """Update the concensus variable for a particular edge"""
-        self._concensus_param[edge] -= (self._lagrangian_param - lagrangian_coefficients_neighbor)*learning_rate
+    def update_lagrangian_variable_from_self(self,lagrangian_variable:np.ndarray) -> None :
+          self._lagrangian_param_neighbors_from_self= lagrangian_variable
     
-    
-    def compute_concensus_average_parameter(self, concensus_variable_from_neighbours:EdgeDict) -> np.ndarray :
+    def compute_consensus_average_parameter(self,) -> np.ndarray :
         """computes sum_{j} \lambda_{ij} - \lambda_{ji}  
         
         Args: 
-            concensus_variable_from_neighbours (EdgeDict) : concensus variable transmitted from the neighbours (\lambda_{ji} in paper)
+            consensus_variable_from_neighbours (EdgeDict) : consensus variable transmitted from the neighbours (\lambda_{ji} in paper)
         Returns:
-            average (np.ndarray) : average of the concensus variable
+            average (np.ndarray) : average of the consensus variable
         
         """
-         
         average = 0
-        for edge in concensus_variable_from_neighbours.keys() :
-            average += concensus_variable_from_neighbours[edge] - self._concensus_param_neighbors[edge]
+        for edge in self._neighbor_edges:
+            average += self._consensus_param_neighbors_from_self[edge] - self._consensus_param_neighbors_from_neighbors[edge]
             
         return average
-    
 
-class AgentTaskDecomposition(Publisher) :
+
+
+def get_inclusion_contraint(zeta:ca.MX, task_container:TaskOptiContainer,source:int, target:int) -> ca.MX:
+    """Return the constraint for the inclusion of a polytope in another polytope"""
+    
+    # Only collaborative parametric task check.
+    if not isinstance(task_container.task.predicate,CollaborativePredicate) :
+        raise ValueError("Only parametric collaborative tasks are allowed to be decomposed. No current support for Individual tasks")
+    elif not task_container.task.is_parametric :
+        raise ValueError("Only parametric tasks are allowed to be decomposed.")
+    
+    # A @ (x_i-x_j - c) <= b   =>  A @ (e_ij - c) <= b 
+    # becomes 
+    # A @ (x_j-x_i + c) >= -b   =>  -A @ (e_ji + c) <= b  =>  A_bar @ (e_ji - c_bar) <= b   (same sign of b,A change the sign)
+        
+    # Check the target source pairs as the inclusion relation needs to respect the direction of the task.
+    if (source == task_container.task.predicate.source_agent) and (target == task_container.task.predicate.target_agent) :
+        A = task_container.task.predicate.A
+        b = task_container.task.predicate.b
+        A_z = np.hstack((A,b)) 
+        constraints = A@zeta - A_z@task_container.eta_var <= 0 
+    
+    else :
+        
+        A = -task_container.task.predicate.A   
+        b =  task_container.task.predicate.b
+        A_z = np.hstack((A,b)) 
+        
+        # The flip matrix reverts the sign of the center variable and lets the scale factor with the same sign.
+        flip_mat = -np.eye(task_container.task.state_space_dimension)
+        flip_mat[-1,-1] = 1
+        
+        constraints = A@zeta - A_z@flip_mat@task_container.eta_var <= 0 
+
+    return constraints
+
+
+
+class EdgeComputingAgent(Publisher) :
     """
-       Agent Task Decomposition
+       Edge Agent Task Decomposition
     """
     def __init__(self,agent_id : UniqueIdentifier,is_computing_agent:bool) -> None:
         """
@@ -194,6 +264,7 @@ class AgentTaskDecomposition(Publisher) :
         self._penalty_values = []
         self._cost_values    = []
         self._is_initialized_for_optimization = False
+        self._zeta_variables = []
         
     @property
     def agent_id(self):
@@ -215,7 +286,7 @@ class AgentTaskDecomposition(Publisher) :
     def is_computing_agent(self):
         return self._is_computing_agent
     
-    
+        
     def add_task(self,task:StlTask,neighbour_edges : list[tuple[UniqueIdentifier]]) :
         """Adds a single task to the computing node for the decomposition
 
@@ -238,63 +309,9 @@ class AgentTaskDecomposition(Publisher) :
         # create the optimization variables for the solver
         if self._is_computing_agent :
             task_container.set_optimization_variables(self._optimizer)
-    
-    #todo: To be corrected still    
-    def setUpOptimizer(self,numIterations :int) :
-        """sets up the optimization problem for the given agent
-        """    
-        
-        if not self._is_computing_agent :
-            raise ValueError("Only computing agents can set up the optimization problem")
-        
-        
-        if len(self._activetask_containers)!=0 and (not self._is_initialized_for_optimization) :# initialised only once when you have active tasks
-            self._num_iterations     = int(numIterations) # number of iterations
-            self._is_initialized_for_optimization  = True
-    
-            # here we need to set all the optimization variabled for your problem
-            cost = 0
-            for taskContainer in self._activetask_containers :
-                
-                task = taskContainer.task
-                
-                if task.isParametric :
-                    task.setOptimizationVariables(self._optimizer) # create scale,center and concensus variables for each task
-                    
-                    # set the scale factor positive in constraint
-                    self._optimizer.subject_to(task.scale >0)
-                    self._optimizer.subject_to(task.scale <=1)
-                    self._optimizer.set_initial(task.scale,0.2) # set an initial guess value
-                    cost += -task.scale
             
-            cost += 12*self._penalty # setting cost toward zero
-       
-        # set up private and shared constraints (also if you don't have constraints this part will be printed)
-        privateConstraints = self._computeOverloadingConstraints()
-        sharedConstraint   = self._compute_shared_constraints()
-        print("-----------------------------------")
-        print(f"{self._agent_id }")
-        print(f"number of private constraints      : {len(privateConstraints)}")
-        print(f"number of shared constraints       : {len(sharedConstraint)}")
-        print(f"number of active  tasks            : {len(self._activetask_containers)}")
-        print(f"number of passive tasks            : {len(self._passivetask_containers)}")
             
-        if len(privateConstraints) != 0:
-            self._optimizer.subject_to(privateConstraints) # it can be that no private constraints are present
-        if len(sharedConstraint)!=0 :
-            self._optimizer.subject_to(sharedConstraint)
-        
-        # set up cost and solver for the problem
-        if  self._is_initialized_for_optimization :
-            self._optimizer.minimize(cost)
-            p_opts = dict(print_time=False, verbose=False)
-            s_opts = dict(print_level=1)
-    
-            self._optimizer.solver("ipopt",p_opts,s_opts)
-            self._cost = cost
-        
-    
-    def _compute_shared_constraints(self) -> list[ca.Function]:
+    def _compute_shared_constraints(self) -> list[ca.MX]:
         """computes the shared inclusion constraint for the given agent. The shared constraints are the incluson of the path sequence of poytopes into the original decomposed polytope
 
         Returns:
@@ -304,12 +321,12 @@ class AgentTaskDecomposition(Publisher) :
         constraints_list = []
         for container in self._task_containers :
             task                 = container.task                     # extract task
-            num_computing_agents = container.decompostion_path_length -1  # Number of agents sharing the computation for this constraint
+            num_computing_agents = container.decomposition_path_length -1  # Number of agents sharing the computation for this constraint
             
             # Compute constraints.
             M,Z  = get_M_and_Z_matrices_from_inclusion(P_including=task.parent_task, P_included=task) # get the matrices for the inclusion constraint
             Z    = Z/num_computing_agents # scale the Z matrix by the number of computing agents 
-            constraint = (M@task.eta_var - Z)  - self._penalty + container.concensus_average_param <= 0 # set the constraint
+            constraint = (M@task.eta_var - Z)  - self._penalty + container.consensus_average_param <= 0 # set the constraint
             constraints_list = [constraint]
             
             container.set_task_constraint_expression(constraint=constraint)
@@ -318,155 +335,140 @@ class AgentTaskDecomposition(Publisher) :
         
      
             
-    def _computeOverloadingConstraints(self) -> list[ca.Function]:
-        """mutiple collaborative tasks
+    def _compute_overloading_constraints(self) -> list[ca.MX]:
+        """multiple collaborative tasks
 
         Returns:
-            constraints (list[ca.Function]): resturns constraints for overloading of the edge with multiple collaborative tasks
+            constraints (list[ca.MX]): Returns constraints for overloading of the edge with multiple collaborative tasks
         """        
         
         constraints = []
-    
-        if len(self._activetask_containers) == 1 :
+        
+        always_task_containers = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,AlwaysOperator)]
+        eventually_task_containers = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,EventuallyOperator)]
+        
+        
+        # Check the always intersections between tasks:
+        if len(self._task_containers) == 1 :
            return  [] # with one single task you don't need overloading constraints
         
-        taskCombinations : list[tuple[TaskOptiContainer,TaskOptiContainer]] = list(itertools.combinations(self._activetask_containers,2))
         
-        for taskContainerI,taskContainerJ in taskCombinations :
-            if not (taskContainerI.task.time_interval  / taskContainerJ.task.time_interval).isEmpty() : # there is an intersection
-                constraints += self._computeIntersectionConstraint(taskContainerI,taskContainerJ)
-   
+        # 1) Always intersection constraints.
+        always_tasks_combinations : list[tuple[TaskOptiContainer,TaskOptiContainer]] = list(combinations(always_task_containers,2))
+        
+        for container1,container2 in always_tasks_combinations :
+            if not (container1.task.temporal_operator.time_interval / container2.task.temporal_operator.time_interval ).is_empty() : # there is an intersection
+                
+                
+                zeta = self._optimizer.variable(container1.task.state_space_dimension)
+                
+                constraints += [get_inclusion_contraint(zeta = zeta, task_container= container1)]
+                constraints += [get_inclusion_contraint(zeta = zeta, task_container= container1)]
+                self._zeta_variables += [zeta]
+                
+        # 2) Eventually intersection constraints.
+        # Find all always tasks that intersect a single eventually task.
+        intersection_sets = {}
+        for eventually_container in eventually_task_containers :
+            intersecting_always_tasks = []
+            for always_container in always_task_containers :
+                if  not (eventually_container.task.temporal_operator.time_interval / always_container.task.temporal_operator.time_interval ).is_empty() :
+                    intersecting_always_tasks == [always_container] 
+            
+            intersection_sets[eventually_container] = intersecting_always_tasks
+            
+            
+        # For each eventually task compute the power set of always tasks that intersect it.
+        power_sets = { eventually_container : list(powerset(intersecting_always_tasks)) for eventually_container,intersecting_always_tasks in intersection_sets.items() } 
+        
+        for eventually_container,always_container_set in power_sets.items() :
+            # Compute the intersection of all tasks in this subset.
+            intersection = TimeInterval(a = float("-inf"),b = float("inf"))
+            
+            for always_task in always_container_set :
+                intersection = intersection / always_task.task.temporal_operator.time_interval
+            
+            # At last check intersection with the eventually task.
+            intersection = intersection / eventually_container.task.temporal_operator.time_interval
+            
+            # If there is a nonzero intersection then add a common intersection constraint.
+            if not intersection.is_empty() :
+                zeta = self._optimizer.variable(eventually_container.task.state_space_dimension)
+                
+                # Always formulas intersection.
+                for always_container in always_container_set :
+                    constraints += [get_inclusion_contraint(zeta = zeta, task_container = always_container)]
+                
+                
+                constraints += [ get_inclusion_contraint(zeta = zeta, task_container = always_container) ]
+                self._zeta_variables += [zeta]
+        
         return constraints    
+  
     
-    def _computeIntersectionConstraint(self,taskContaineri:TaskOptiContainer,taskContainerj:TaskOptiContainer) -> list[ca.Function] :
-        """ creates the intersection constraionts for two tasks """
+    def setup_optimizer(self,num_iterations :int) :
+        """
+        setup the optimization problem for the given agent
+        """    
         
-        taski : StlTask = taskContaineri.task
-        taskj : StlTask = taskContainerj.task
+        if not self._is_computing_agent :
+            raise ValueError(f"Only computing agents can set up the optimization problem including their constraints and cost function. The current agent with ID {self._agent_id} is not a computing agent.")
         
-        if (not taski.isParametric) and (not taskj.isParametric) : # if both the tasks are nonparameteric, there is no constraint to add
-            return []
+        if self._is_initialized_for_optimization :
+            raise NotImplementedError("The optimization problem was already set up. You can only set up the optimization problem once at the moment.")
         
-        # help the solver with the initial location of the point
+        if len(self._task_containers)==0 :
+            raise Warning("The agent does not have any tasks to decompose. The optimization problem will not be set up")
+
         
+        self._num_iterations     = int(num_iterations) # number of iterations.
+        self._is_initialized_for_optimization  = True
+        cost = 0
         
-        Ai = taski.predicate.A
-        Aj = taskj.predicate.A
-        bi = taski.predicate.b
-        bj = taskj.predicate.b
-        
-        
-        # centers
-        if (taski.sourceNode== taskj.targetNode) and (taskj.sourceNode== taski.targetNode) : #the two have inverted source target pairs and then we have to invert one of the centers at least
+        for task_container in self._task_containers :
             
-            ci = taski.center 
-            cj = -taskj.center
+            if task_container.task.is_parametric:
+                task_container.set_optimization_variables(self._optimizer) # creates scale,center and consensus variables for each task.
+        
+                # Set the scale factor positive in constraint
+                self._optimizer.subject_to(task_container.scale_var >0)
+                self._optimizer.set_initial(task_container.scale_var,0.2) # set an initial guess value
+                cost += -task_container.scale_var
             
-        elif (taski.sourceNode== taskj.sourceNode) and (taskj.targetNode== taski.targetNode) : # have the same traget source pairs
-            ci = taski.center 
-            cj = taskj.center
+            cost += 12*self._penalty # setting cost toward zero
        
-        else : # the two tasks do not pertain to the same edge. Hence there is no constraint to be included bceause the two tasks pertain to different edges
-            return []
+        # set up private and shared constraints (also if you don't have constraints this part will be printed)
+        overloading_constraints = self._compute_overloading_constraints()
+        shared_path_constraint   = self._compute_shared_constraints()
+        
+        if len(overloading_constraints) != 0:
+            self._optimizer.subject_to(overloading_constraints ) # it can be that no private constraints are present
+        if len(shared_path_constraint)!=0 :
+            self._optimizer.subject_to(shared_path_constraint)
         
         
-        # scale factors
-        si = taski.scale
-        sj = taskj.scale
-        zeta = self._optimizer.variable(taski.stateSpaceDimension) # this is vector applied only to check an intersection (at every intersection you have a new define variable in the optimization)
+        print("-----------------------------------")
+        print(f"{self._agent_id }")
+        print(f"Number of overloading_constraints  : {len(overloading_constraints)}")
+        print(f"Number of shared constraints       : {len(shared_path_constraint )}")
+        print(f"Number of variables                : {len(self.optimizer.nx)}")
         
-        if not taski.isParametric :
-            self._optimizer.set_initial(zeta,ci) # give an hint about the point for easier satisfaction of the intersaction constraint
-        elif not taskj.isParametric :
-            self._optimizer.set_initial(zeta,cj) # give an hint about the point for easier satisfaction of the intersaction constraint
-            
-        
-        constraints = []
-        # you enforce that there exists at least one point y that is contained in both the sets (t just says a certain degree of penetration)
-        constraints += [Ai@(zeta-ci) - si*bi<=0 ] # t will be negative. The more negative and the more the two polygons will intersect
-        constraints += [Aj@(zeta-cj) - sj*bj<=0 ]
-        
-        return constraints
-   
-    
-    def unpackReponse(self, response : ConcensusVariableResposeMessage) -> None:
-        """ here you upack the reponse for bith active and passive tasks"""
-        
-        # check in the active ones
-        for taskContainer in self._activetask_containers :
-            if (taskContainer.taskID == response.taskID) and (response.edge in taskContainer.edgeNeigboursConcensusVariable):
-                
-                taskContainer.updateNeigboursConcensusVariables(edgeNeigbour          = response.edge, 
-                                                                lagrancianCoefficient = response.lagrangianCoefficient, 
-                                                                concensusVariable     = response.concensusVariable) # update the neigbour concensus variable
-                return 
-        
-        # check in the passive one
-        for taskContainer in self._passivetask_containers :
-            if (taskContainer.correspondsTo(response)):
-                taskContainer.updateConcensusVariables(lagrancianCoefficient = response.lagrangianCoefficient, 
-                                                       concensusVariable     = response.concensusVariable)
-                return
-                
-        
-    def replyConcensusRequest(self, request : ConcensusVariableRequestMessage) -> ConcensusVariableResposeMessage|None:
-        """reply the concensus request"""
-       
-        # check first that you have the task among the active ones 
-        for taskContainer in  self.task_containers :
-            
-            # you only reply if you have a task container with the same edge as the requested one and the same task ID
-            if taskContainer.correspondsTo(request):
-                lagrangianCoefficient = taskContainer.lagrangianCoefficient
-                concensusVariable     = taskContainer.concensusVariable
-                response  = ConcensusVariableResposeMessage(senderID = self._agent_id , 
-                                                            taskID   = taskContainer.taskID,
-                                                            edge     = request.edge,
-                                                            lagrangianCoefficients = lagrangianCoefficient,
-                                                            concensusVariable      = concensusVariable)
-                return response # there is only one message per task, so you can break as soon as you found the one that you needed 
-    
-    def sendConcensusRequests(self) -> list[ConcensusVariableRequestMessage] :
-        """Send a concensus request for the active tasks given to the agent"""
-        requests : list[ConcensusVariableRequestMessage]  = []
-        
-        parametricActiveContainers  = [ taskContainer for taskContainer in self._activetask_containers if taskContainer.task.isParametric]
-        parametricPassiveContainers = [ taskContainer for taskContainer in self._passivetask_containers if taskContainer.task.isParametric] 
-        
-        # ask for all the active tasks
-        for taskContainer in parametricActiveContainers  :
-            for edgeNeigbour in taskContainer.edgeNeigboursConcensusVariable.keys() : # compile a request for each neigbouring edge
-                requests+= [ConcensusVariableRequestMessage(senderID=self.agentID,edge=edgeNeigbour,taskID=taskContainer.taskID)] 
-        
-        # for all the tasks that you have as active from one edge and active from the other edge, you do not need to send a 
-        # request. Indeed, you can update the neigbours parameters for this tasks yourself if you wanted to. But this 
-        # is actually not necessary to do and it can be skipped. The other active agents will ask you for updates if needed.
-        # On the other hand you will ask for updates over the passive tasks that you don't have as active on another edge. So for those tasks
-        # you will be a simple messanger basically.
-        
-        for PtaskContainer in parametricPassiveContainers :
-            requests+= [ConcensusVariableRequestMessage(senderID=self.agentID,edge=PtaskContainer.task.sourceTarget,taskID=PtaskContainer.taskID)] # this is just asking your directed neigbours for updates
-        
-        return requests
-    
-    
-    def updateY(self):
-        
-        learningRate = 0.9 * (1/self._current_iteration)**0.7
-        for taskContainer in self._activetask_containers : # update concensus variables active task containers
-            if taskContainer.task.isParametric :
-                cAverage = taskContainer.computeLagrangianCoefficientsAverage()
-                taskContainer.concensusVariable = taskContainer.concensusVariable - learningRate*(cAverage) # concensus update
-                
-    def solveLocalProblem(self,printResult:bool=False) -> None :
+        # set up cost and solver for the problem
+        self._optimizer.minimize(cost)
+        p_opts = dict(print_time=False, verbose=False)
+        s_opts = dict(print_level=1)
+
+        self._optimizer.solver("ipopt",p_opts,s_opts)
+        self._cost = cost
         
         
-        # algorithm start assuming the the others solved their problem (because you all set the lagangina multipliers to zero)
+    def solve_local_problem(self,print_result:bool=False) -> None :
         
-        for taskContainer in self._activetask_containers :
-            if taskContainer.task.isParametric :
-                yAverage = taskContainer.computeConcensusAverage()
-                self._optimizer.set_value(taskContainer.concensus_average_param,yAverage)
+        # Update the consensus parameters.
+        for task_container in self._task_containers :
+            if task_container.task.is_parametric :
+                consensus_average = task_container.compute_consensus_average_parameter() 
+                self._optimizer.set_value(task_container.consensus_average_param,   consensus_average )
                 
         if self._warm_start_solution != None :
             self._optimizer.set_initial(self._warm_start_solution.value_variables())
@@ -479,105 +481,78 @@ class AgentTaskDecomposition(Publisher) :
             print("******************************************************************************")
             print("The latest value for the variables was the following : ")
             print("penalty                 :",self._optimizer.debug.value(self._penalty))
-            print("penetration coefficient :",self._optimizer.debug.value(self._t))
-            print("cost                    : ",self._optimizer.debug.value(self._cost))
+            print("cost                    :",self._optimizer.debug.value(self._cost))
             print("******************************************************************************")
             
             exit()
       
         
-        if printResult :
+        if print_result :
             print("--------------------------------------------------------")
             print(f"Agent {self._agent_id } SOLUTION")
             print("--------------------------------------------------------")
-            for taskContainer in self._activetask_containers :
-                if taskContainer.task.isParametric :
+            for task_container in self._task_containers :
+                if task_container.task.is_parametric :
                     print("Center and Scale")
-                    print(self._optimizer.value(taskContainer.task.center))
-                    print(self._optimizer.value(taskContainer.task.scale))
-                    print("Lagrangian Concensus norm")
-                    print(np.linalg.norm(taskContainer.computeLagrangianCoefficientsAverage()))
+                    print(self._optimizer.value(task_container.center_var))
+                    print(self._optimizer.value(task_container.scale_var))
             
             print("penalty")
             print(self._optimizer.value(self._penalty))
-            print("penetration conefficients")
-            print(self._optimizer.value(self._t))
             print("--------------------------------------------------------")
         
         self._penalty_values.append(self._optimizer.value(self._penalty))
         self._cost_values.append(self._optimizer.value(self._cost))
         
         self._warm_start_solution = sol
-        # update lagangian coefficients
-        for taskContainer in self._activetask_containers :
-            if taskContainer.task.isParametric :
-                taskContainer.lagrangianCoefficient = self._optimizer.value(self._optimizer.dual(taskContainer.localConstraint))[:,np.newaxis]
         
+        # Update lagrangian coefficients
+        for task_container in self._task_containers :
+            if task_container.task.is_parametric :
+                
+                lagrangian_coefficient = self._optimizer.value(self._optimizer.dual(task_container.local_constraint))[:,np.newaxis]
+                task_container.update_lagrangian_variable_from_self(lagrangian_variable=lagrangian_coefficient) # Save the lagrangian variable associated with this task.
+        
+        # Set the optimizer to SQPMETHOD after the first solution is found. This method is much faster than Ipopt once a good initial solution is found.
         if not self._was_solved_already_once :
             self._was_solved_already_once = True
-            self._optimizer.solver("sqpmethod",{"qpsol":"qpoases"}) 
+            self._optimizer.solver("sqpmethod",{"qpsol":"qpoases"}) # Much faster after an initial solution is found.
             
-        
-        # save current iteration
+        # Update current iteration count.
         self._current_iteration += 1
+    
+    
+    def update_consensus_variable_from_edge_neighbour_callback(self,consensus_variable:np.ndarray,edge:tuple[UniqueIdentifier,UniqueIdentifier],parent_task_id:int) -> None :
+        """Update the task of the agent"""
+        for task_container in self._task_containers :
+            if task_container.task.parent_task_id == parent_task_id : # you have a task connected to the same parent id
+                task_container.update_consensus_variable_from_neighbor(edge=edge,consensus_variable= consensus_variable)
+                break
         
-    def getListOfActiveTasks(self) -> list[StlTask]:
-        """
-           Returns the list of active tasks for this agent. Indeed, the active tasks are all defined over one edge and they are the tasks that the agent needs to use to solve the parameters of the parameteric tasks. 
-           Note that both parameteric and non parametric tasks are present here since both need to be used in the optimization. The returned list of tasks does not contain any parameteric task since the parameter were found as a resul of the 
-           optimization.
-        """
-
-        # tasks that are not parameteric over the edge
-        nonParametricTasks = [taskContainer.task for taskContainer in self._activetask_containers if not taskContainer.task.isParametric]
-        
-        solvedTasks = []
-        if self._was_solved_already_once : # if there was an optimization
-            for taskContainer in self._activetask_containers : # look in all the active tasks of the edge
-                if taskContainer.task.isParametric : # check the ones that are parameherrioc and hence needs to be replaced by nonParametrci tasks after the optimzation
-                    center = self._optimizer.value(taskContainer.task.center)
-                    scale = self._optimizer.value(taskContainer.task.scale)
-                    taskContainer.task.predicate.A
-                    # create a new task out of the parameteric one
-                    predicate = PolytopicPredicate(A     = taskContainer.task.predicate.A,
-                                                         b     = scale*taskContainer.task.predicate.b,
-                                                         center= center)
-                    task = StlTask(temporalOperator   = taskContainer.task.temporal_operator,
-                                         timeinterval       = taskContainer.task.time_interval,
-                                         predicate          = predicate,
-                                         source             = taskContainer.task.sourceNode,
-                                         target             = taskContainer.task.targetNode,
-                                         timeOfSatisfaction = taskContainer.task.timeOfSatisfaction
-                                         )
-                    
-                    solvedTasks += [task]
-                      
-        tasksList = nonParametricTasks + solvedTasks    # return all the tasks defind over the edge. Non paramteric task is give here
-
-        return tasksList
+    def update_lagrangian_variable_from_edge_neighbour_callback(self,lagrangian_variable:np.ndarray,edge:tuple[UniqueIdentifier,UniqueIdentifier],parent_task_id:int) -> None :
+        """Update the task of the agent"""
+        for task_container in self._task_containers :
+            if task_container.task.parent_task_id == parent_task_id :
+                task_container.update_lagrangian_variable_from_neighbor(edge=edge,lagrangian_variable= lagrangian_variable)
         
 
 
 
-
-
-
-
-def concensusRound(decompositionAgents : dict[int,AgentTaskDecomposition],commGraph: nx.DiGraph,yOnly:bool=False) :
+def consensusRound(decompositionAgents : dict[int,AgentTaskDecomposition],commGraph: nx.DiGraph,yOnly:bool=False) :
     """start an exchange of communication messages among the agents. This is a centralised simulation of what should happen in a decentralised way"""
     
-    # we need this for loop to be run twice. One time for the active computing agents to share the information about the concensus parameters and one for the supporting agents to get the inforamtions to the two hop away agents
+    # we need this for loop to be run twice. One time for the active computing agents to share the information about the consensus parameters and one for the supporting agents to get the inforamtions to the two hop away agents
     for round in range(2) :
         for agentID,agent in decompositionAgents.items() :
             
-            requests = agent.sendConcensusRequests() # compile requests
+            requests = agent.sendconsensusRequests() # compile requests
             neigbours = list(commGraph.neighbors(agentID))
 
             # simulate a communication round
             
             for request in requests :
                 for neigbour in neigbours :
-                    reply = decompositionAgents[neigbour].replyConcensusRequest(request=request)
+                    reply = decompositionAgents[neigbour].replyconsensusRequest(request=request)
                     if reply != None : # if there is a reply (you don't get one if you sedn a message tp the wrong neigbour)
                         print("---------request parameters--------")
                         print("asker",request.senderID)
@@ -591,15 +566,6 @@ def concensusRound(decompositionAgents : dict[int,AgentTaskDecomposition],commGr
                         agent.unpackReponse(reply) # get the reply and update the variables accordingly
                         break
    
-            
-def edgeSet(path:list[int],isCycle:bool=False) -> list[(int,int)] :
-    
-    if not isCycle :
-      edges = [(path[i],path[i+1]) for i in range(len(path)-1)]
-    elif isCycle : # due to how networkx returns edges
-      edges = [(path[i],path[i+1]) for i in range(-1,len(path)-1)]
-        
-    return edges
 
 
 class GraphEdge( ) :
@@ -812,25 +778,25 @@ def runTaskDecomposition(edgeList: list[GraphEdge]) -> (nx.Graph,nx.Graph,nx.Gra
    
         if edgeObj.isCommunicating and edgeObj.hasSpecifications : # for all the cummincating agent start putting the tasks over the nodes
   
-            decompositionAgents[edgeObj.sourceNode].addActivetask_containers(edgeObj.task_containers)  # all the containers for the optimization (source node is the one makijng computations actively on this constraints)
+            decompositionAgents[edgeObj.sourceNode].addtask_containers(edgeObj.task_containers)  # all the containers for the optimization (source node is the one makijng computations actively on this constraints)
             decompositionAgents[edgeObj.targetNode].addPassivetask_containers(edgeObj.task_containers) # all the containers for message resumbission (target node willl forward this information if necessary to other nodes)
                
     # after all constraints are set, initialise source nodes as computing agents for the dges that were used for the optimization
     for agent in decompositionAgents.values() :
         agent.setUpOptimizer(numIterations=numOptimizationIterations)
     
-    concensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents)# share current value of private lagrangian coefficients and auxiliary y variable
+    consensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents)# share current value of private lagrangian coefficients and auxiliary y variable
     # find solution
     for jj in range(numOptimizationIterations) :
         for agentID,agent in decompositionAgents.items() :
             if agent.is_initialized_for_optimization : #only computing agents should make computations 
                 agent.solveLocalProblem()
-        concensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents)
+        consensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents)
         # update y
         for agentID,agent in decompositionAgents.items() :
             if agent.is_initialized_for_optimization :
                 agent.updateY() # update the value of y
-        concensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents) # concensus before leaving
+        consensusRound(commGraph=commGraph,decompositionAgents=decompositionAgents) # consensus before leaving
 
     fig,(ax1,ax2) = plt.subplots(1,2)
     for agentID,agent in decompositionAgents.items() :
@@ -877,15 +843,15 @@ def printDecompositionResult(decompositionPaths : list[list[int]], decomposition
         edgeObj = findEdge(edgeList = edgeObjectsLists, edge =(i,j)) # get the corresponding edge
         decomposedTasks : list[TaskOptiContainer] = edgeObj.task_containers                                # get all the tasks defined on this edge
         
-        for taskContainer in decomposedTasks :
+        for task_container in decomposedTasks :
             tasksAlongThePath = {}
             for agentID,agent in computingAgents.items() :
-                agenttask_containers = agent.activeTaskConstainers # search among the containers you optimised for 
+                agenttask_containers = agent.taskConstainers # search among the containers you optimised for 
                 for container in agenttask_containers : # check which task on the agent you have correspondance to
-                    if taskContainer.taskID == container.taskID :
+                    if task_container.taskID == container.taskID :
                         tasksAlongThePath[agent] = container # add the partial task now
             
-            decompositionDictionay[taskContainer] = tasksAlongThePath  # now you have dictionary with parentTask and another dictionary will all the child tasks       
+            decompositionDictionay[task_container] = tasksAlongThePath  # now you have dictionary with parentTask and another dictionary will all the child tasks       
     
     
     if len(decompositionDictionay) <= 3 and len(decompositionDictionay)>1 :
@@ -926,7 +892,7 @@ def printDecompositionResult(decompositionPaths : list[list[int]], decomposition
             # the computing agent is at one of the the nodes of the edge
             scaleSums  += computingAgent.optimizer.value(childTaskContainer.task.scale)
             centerSums += computingAgent.optimizer.value(childTaskContainer.task.center)
-            yaverageSum += childTaskContainer.computeConcensusAverage()
+            yaverageSum += childTaskContainer.computeconsensusAverage()
             
             # print successive edge sets
             bprime = scaleSums*decomposedTaskContainer.task.predicate.b +  decomposedTaskContainer.task.predicate.A@centerSums
@@ -939,7 +905,7 @@ def printDecompositionResult(decompositionPaths : list[list[int]], decomposition
             
         print(f"Sum of scales         : {scaleSums}".ljust(30)      +     "(<= 1.)")
         print(f"Sum of Centers        : {centerSums}".ljust(30)     +     "(similar to original)")
-        print(f"Concensus variables   : {np.sum(yaverageSum)}".ljust(30) + "(required 0.0)")
+        print(f"consensus variables   : {np.sum(yaverageSum)}".ljust(30) + "(required 0.0)")
         print("**************************************************************")
         ax[counter].set_title(f"Task edge {decomposedTaskContainer.task.sourceTarget}\n Operator {decomposedTaskContainer.task.temporal_operator} {decomposedTaskContainer.task.time_interval}")
         ax[counter].grid(visible=True)
@@ -960,64 +926,64 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
     
     for agent in decompostionAgents.values() :
         taskList = []
-        activetask_containers = agent.activeTaskConstainers # active task containers
+        task_containers = agent.taskConstainers # active task containers
         passivetask_containers = agent.passiveTaskConstainers # active task containers
         
-        for taskContainer in activetask_containers :
-            if taskContainer.task.isParametric :
-                center = agent.optimizer.value(taskContainer.task.center)
-                scale  = agent.optimizer.value(taskContainer.task.scale)
+        for task_container in task_containers :
+            if task_container.task.is_parametric :
+                center = agent.optimizer.value(task_container.task.center)
+                scale  = agent.optimizer.value(task_container.task.scale)
                 
-                taskContainer.task.predicate.A
+                task_container.task.predicate.A
                 # create a new task out of the parameteric one
-                predicate = PolytopicPredicate(A     = taskContainer.task.predicate.A,
-                                                     b     = scale*taskContainer.task.predicate.b,
+                predicate = PolytopicPredicate(A     = task_container.task.predicate.A,
+                                                     b     = scale*task_container.task.predicate.b,
                                                      center= center)
-                task = StlTask(temporalOperator   = taskContainer.task.temporal_operator,
-                                     timeinterval       = taskContainer.task.time_interval,
+                task = StlTask(temporalOperator   = task_container.task.temporal_operator,
+                                     timeinterval       = task_container.task.time_interval,
                                      predicate          = predicate,
-                                     source             = taskContainer.task.sourceNode,
-                                     target             = taskContainer.task.targetNode,
-                                     timeOfSatisfaction = taskContainer.task.timeOfSatisfaction)
+                                     source             = task_container.task.sourceNode,
+                                     target             = task_container.task.targetNode,
+                                     timeOfSatisfaction = task_container.task.timeOfSatisfaction)
                 taskList += [task]
                 
                 
             else : # no need for any parameter
-                taskList += [taskContainer.task]
+                taskList += [task_container.task]
                         
-        for taskContainer in passivetask_containers :
-            if taskContainer.task.isParametric :
+        for task_container in passivetask_containers :
+            if task_container.task.is_parametric :
                 # ask the agent on the other side of the node for the solution
-                if agent.agentID == taskContainer.task.sourceNode : # you are the source mnode ask the target node
+                if agent.agentID == task_container.task.sourceNode : # you are the source mnode ask the target node
         
-                    for container in decompostionAgents[taskContainer.task.targetNode].activeTaskConstainers :
-                        if container.taskID == taskContainer.taskID :
-                            center = decompostionAgents[taskContainer.task.targetNode].optimizer.value(container.task.center)
-                            scale  = decompostionAgents[taskContainer.task.targetNode].optimizer.value(container.task.scale)
+                    for container in decompostionAgents[task_container.task.targetNode].taskConstainers :
+                        if container.taskID == task_container.taskID :
+                            center = decompostionAgents[task_container.task.targetNode].optimizer.value(container.task.center)
+                            scale  = decompostionAgents[task_container.task.targetNode].optimizer.value(container.task.scale)
                             break # only one active task from the other agent will correspond to a passive task for this agent. Both tasks have the same ID
                     
                 else : # you are the target node ask the source node
-                    for container in decompostionAgents[taskContainer.task.sourceNode].activeTaskConstainers :
-                        if container.taskID == taskContainer.taskID :
-                            center = decompostionAgents[taskContainer.task.sourceNode].optimizer.value(container.task.center)
-                            scale  = decompostionAgents[taskContainer.task.sourceNode].optimizer.value(container.task.scale)
+                    for container in decompostionAgents[task_container.task.sourceNode].taskConstainers :
+                        if container.taskID == task_container.taskID :
+                            center = decompostionAgents[task_container.task.sourceNode].optimizer.value(container.task.center)
+                            scale  = decompostionAgents[task_container.task.sourceNode].optimizer.value(container.task.scale)
                             break
                     
-                taskContainer.task.predicate.A
+                task_container.task.predicate.A
                 # create a new task out of the parameteric one
-                predicate = PolytopicPredicate(A     = taskContainer.task.predicate.A,
-                                                     b     = scale*taskContainer.task.predicate.b,
+                predicate = PolytopicPredicate(A     = task_container.task.predicate.A,
+                                                     b     = scale*task_container.task.predicate.b,
                                                      center= center)
-                task = StlTask(temporalOperator   = taskContainer.task.temporal_operator,
-                                     timeinterval       = taskContainer.task.time_interval,
+                task = StlTask(temporalOperator   = task_container.task.temporal_operator,
+                                     timeinterval       = task_container.task.time_interval,
                                      predicate          = predicate,
-                                     source             = taskContainer.task.sourceNode,
-                                     target             = taskContainer.task.targetNode,
-                                     timeOfSatisfaction = taskContainer.task.timeOfSatisfaction)
+                                     source             = task_container.task.sourceNode,
+                                     target             = task_container.task.targetNode,
+                                     timeOfSatisfaction = task_container.task.timeOfSatisfaction)
                 
                 taskList += [task]
             else : # no need for any parameter
-                taskList += [taskContainer.task]
+                taskList += [task_container.task]
     
         agentTasksPair[agent.agentID] = {"tasks":taskList}
     

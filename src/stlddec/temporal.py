@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 import numpy as np
 
+
 class TimeInterval :
     """time interval class"""
     # empty set is represented by a double a=None b = None
-    def __init__(self,a:float|int|None = None,b:float|int|None =None) -> None:
-        
+    def __init__(self,a:float|None = None,b:float|None =None) -> None:
         
         
         if any([a==None,b==None]) and (not all(([a==None,b==None]))) :
@@ -15,16 +15,12 @@ class TimeInterval :
             self._b = b
         else :    
             # all the checks 
-            if (not isinstance(a,float)) and  (not isinstance(a,int)) :
-                raise ValueError("the input a must be a float or int")
-            elif a<0 :
-                raise ValueError("extremes of time interval must be positive")
+            if (not isinstance(a,float))  :
+                raise ValueError("the input a must be a float")
             
             # all the checks 
-            if (not isinstance(b,float)) and  (not isinstance(b,int)) :
-                raise ValueError("the input b must be a float or int")
-            elif b<0 :
-                raise ValueError("extremes of time interval must be non negative")
+            if (not isinstance(b,float)) :
+                raise ValueError("the input b must be a float")
             
             if a>b :
                 raise ValueError("Time interval must be a couple of non decreasing time instants")
@@ -41,7 +37,7 @@ class TimeInterval :
     
     @property
     def measure(self) :
-        if self.isEmpty() :
+        if self.is_empty() :
             return None # empty set has measure None
         return self._b - self._a
     
@@ -49,35 +45,36 @@ class TimeInterval :
     def aslist(self) :
         return [self._a,self._b]
     
-    def isEmpty(self)-> bool :
+    def is_empty(self)-> bool :
         if (self._a == None) and (self._b == None) :
             return True
         else :
             return False
         
-    def isSingular(self)->bool:
+    def is_singular(self)->bool:
         a,b = self._a,self._b
         if a==b :
             return True
         else :
             return False
-    
-    def __lt__(self,timeInt:"TimeInterval") -> "TimeInterval":
-        """strict subset relations self included in timeInt ::: "TimeInterval" < timeInt """
+        
+        
+        
+    def __truediv__(self,timeInt:"TimeInterval") -> "TimeInterval" :
+        """returns interval Intersection"""
+        
         a1,b1 = timeInt.a,timeInt.b
         a2,b2 = self._a,self._b
-        
-        if self.isEmpty() and (not timeInt.isEmpty()) :
-            return True
-        elif (not self.isEmpty()) and timeInt.isEmpty() :
-            return False
-        elif  self.isEmpty() and timeInt.isEmpty() : # empty set included itself
-            return True
+
+        # if any anyone is empty return the empty set.
+        if b2<a1 :
+            return TimeInterval(a = None, b = None)
+        elif a2>b1 :
+            return TimeInterval(a = None, b = None)
         else :
-            if (a1<a2) and (b2<b1): # condition for intersectin without inclusion of two intervals
-                return True
-            else :
-                return False
+            return TimeInterval(a = max(a2,a1), b = min(b1,b2))
+            
+        
     
     def __eq__(self,timeInt:"TimeInterval") -> bool:
         """ equality check """
@@ -88,7 +85,7 @@ class TimeInterval :
             return True
         else :
             return False
-        
+    
     def __ne__(self,timeInt:"TimeInterval") -> bool :
         """ inequality check """
         a1,b1 = timeInt.a,timeInt.b
@@ -99,46 +96,41 @@ class TimeInterval :
         else :
             return True
         
-    def __le__(self,timeInt:"TimeInterval") -> "TimeInterval" :
-        """subset relations self included in timeInt  ::: "TimeInterval" < timeInt """
         
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
+    
+    def __lt__(self,timeInt:"TimeInterval") -> "TimeInterval":
+        """strict subset relations self included in timeInt ::: "TimeInterval" < timeInt """
         
-        if self.isEmpty() and (not timeInt.isEmpty()) :
-            return True
-        elif (not self.isEmpty()) and timeInt.isEmpty() :
+        intersection = self.__truediv__(timeInt)
+        
+        if intersection.is_empty() :
             return False
-        elif  self.isEmpty() and timeInt.isEmpty() : # empty set included itself
+        
+        if (intersection!=self) :
+            return False
+        
+        if (intersection == self) and (intersection != timeInt) :
             return True
         else :
-            if (a1<=a2) and (b2<=b1): # condition for intersectin without inclusion of two intervals
-                return True
-            else :
-                return False
-        
-    def __truediv__(self,timeInt:"TimeInterval") -> "TimeInterval" :
-        """interval Intersection"""
-        
-        a1,b1 = timeInt.a,timeInt.b
-        a2,b2 = self._a,self._b
-        
-        
-        # the empty set is already in this cases since the empty set is included in any other set
-        if timeInt<= self :
-            return TimeInterval(a =timeInt.a, b = timeInt.b)
-        elif self<= timeInt :
-            return TimeInterval(a =self._a, b = self._b)
-        else : # intersection case
-            if (b1<a2) or (b2<a1) : # no intersection case
-                return TimeInterval(a = None, b = None)
-            elif (a1<=a2) and (b1<=b2) :
-                return TimeInterval(a = a2, b = b1)
-            else :
-                return TimeInterval(a = a1, b = b2)
+            return False # case of equality between the sets
     
-    
-    
+        
+    def __le__(self,timeInt:"TimeInterval") -> "TimeInterval" :
+        """subset (with equality) relations self included in timeInt  ::: "TimeInterval" <= timeInt """
+        
+        intersection = self.__truediv__(timeInt)
+        
+        if intersection.is_empty() :
+            return False
+        
+        if (intersection!=self) :
+            return False
+        
+        if (intersection == self) :
+            return True
+   
+        
+        
     def __str__(self):
         return f"[{self.a},{self.b}]"
     
