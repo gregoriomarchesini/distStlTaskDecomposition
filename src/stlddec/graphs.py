@@ -5,6 +5,17 @@ import networkx as nx
 from typing import Generic, TypeVar
 W = TypeVar("W")
 
+
+
+
+
+def tuple_to_int(t:tuple) -> int :
+    """Converts a tuple to an integer"""
+    tuple = tuple(sorted(t))
+    return int("".join(str(i) for i in t))
+
+
+
 class UndirectedEdgeMapping(dict, Generic[W]):
     """Helper dictionary class: takes undirected edges as input keys only"""
     def _normalize_key(self, key):
@@ -32,8 +43,9 @@ class UndirectedEdgeMapping(dict, Generic[W]):
         normalized_key = self._normalize_key(key)
         return dict.__contains__(self,normalized_key)
     
+
     
-class GraphEdge :
+class GraphEdge() :
     
     def __init__(self, edge_i :int,edge_j:int, is_communicating :int= 0,weight:float=1) -> None:
      
@@ -134,26 +146,50 @@ def compute_weights(source,target,attributesDict) :
     return attributesDict["edgeObj"].weight    
 
 
-def create_communication_graph_from_edges(edge_list :  UndirectedEdgeMapping[GraphEdge]) :
+def create_communication_graph_from_edges(edge_map :  UndirectedEdgeMapping[GraphEdge]) :
     """ Builds a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
     
     comm_graph = nx.Graph()
     
-    for edge,edge_obj in edge_list.items() :
+    for edge,edge_obj in edge_map.items() :
         if edge_obj.is_communicating : 
             comm_graph.add_edge(edge[0],edge[1])
     return comm_graph
 
 
-def create_task_graph_from_edges(edge_list :  UndirectedEdgeMapping[GraphEdge]):
+def create_task_graph_from_edges(edge_map :  UndirectedEdgeMapping[GraphEdge]):
     """ Builds a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
     
     task_graph = nx.Graph()
     
-    for edge,edge_obj in edge_list.items() :
+    for edge,edge_obj in edge_map.items() :
         if edge_obj.has_specifications: 
             task_graph.add_edge(edge[0],edge[1])
     return task_graph
+    
+    
+def create_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
+    
+    computing_graph = nx.Graph()
+    if not nx.is_tree(comm_graph) :
+        raise ValueError("The communication graph must be acyclic to obtain a valid computation graph")
+    
+    for edge in comm_graph.edges :
+        
+        computing_graph.add_node(tuple_to_int(edge))
+    
+    for edge in comm_graph.edges :    
+        # Get all edges connected to node1 and node2
+        edges_node1 = set(comm_graph.edges.edges(edge[0]))
+        edges_node2 = set(comm_graph.edges.edges(edge[1]))
+    
+        # Combine the edges and remove the original edge
+        adjacent_edges = list((edges_node1 | edges_node2) - {edge})
+        computing_edges = [ (tuple_to_int(edge), tuple_to_int(edge_neigh)) for edge_neigh in adjacent_edges]
+        
+        computing_graph.add_edges_from(computing_edges)
+    
+    return computing_graph
     
 if __name__ == "__main__" :
     

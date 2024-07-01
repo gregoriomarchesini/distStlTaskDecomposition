@@ -21,8 +21,7 @@ class Publisher(ABC):
     
     
     def add_topic(self, event_type:str):
-        """A
-        dd list of topics
+        """Add list of topics
         
         Args:
             event_type (str): [description]

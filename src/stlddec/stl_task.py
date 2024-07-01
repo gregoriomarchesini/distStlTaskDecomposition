@@ -19,19 +19,11 @@ class TimeInterval :
             self._a = a
             self._b = b
         else :    
-            # all the checks 
-            if (not isinstance(a,float))  :
-                raise ValueError("the input a must be a float")
-            
-            # all the checks 
-            if (not isinstance(b,float)) :
-                raise ValueError("the input b must be a float")
-            
             if a>b :
                 raise ValueError("Time interval must be a couple of non decreasing time instants")
          
-        self._a = a
-        self._b = b
+            self._a = float(a)
+            self._b = float(b)
         
     @property
     def a(self):
@@ -70,8 +62,13 @@ class TimeInterval :
         
         a1,b1 = timeInt.a,timeInt.b
         a2,b2 = self._a,self._b
-
-        # if any anyone is empty return the empty set.
+        
+        
+        # If any anyone is empty return the empty set.
+        if self.is_empty() or timeInt.is_empty() :
+            return TimeInterval(a = None, b = None)
+        
+        # check for intersection.
         if b2<a1 :
             return TimeInterval(a = None, b = None)
         elif a2>b1 :
@@ -359,8 +356,7 @@ def get_id_from_input_name(input_name: str) -> UniqueIdentifier:
 class PolytopicPredicate(ABC):
     """Class to define polytopic predicate containing the origin"""
     def __init__(self, polytope_0: pc.Polytope , 
-                       center:     np.ndarray, 
-                       is_parametric: bool=False) -> None:
+                       center:     np.ndarray = np.empty((0))) -> None:
         """_summary_
 
         Args:
@@ -375,7 +371,11 @@ class PolytopicPredicate(ABC):
         
         # when the predicate is parameteric, then the center is assumed to be the one assigned to the orginal predicate from which the predicate is derived for the decomspotion
         
-        if center.ndim == 1:
+        
+        if center.size == 0 :
+            self._is_parametric     = True
+            
+        if center.ndim == 1 and center.size != 0 :
             center = center.expand_dims(1) 
             
 
@@ -384,12 +384,7 @@ class PolytopicPredicate(ABC):
             raise ValueError("The center of the polytope must be inside the polytope")
         
         self._center     = center # center of the polygone
-        self._num_hyperplanes , self._state_space_dim = np.shape(A)
-        
-        
-        # turn the center as a column
-        if np.ndim(self._center) == 0:
-            self._center = self._center[:,np.newaxis]
+        self._num_hyperplanes , self._state_space_dim = np.shape(polytope_0.A)
             
         try :
             self._vertices    = [ np.expand_dims(vertex,1) for vertex in  [*pc.extreme(self._polytope)]    ] # unpacks vertices as a list of column vectors
@@ -397,8 +392,6 @@ class PolytopicPredicate(ABC):
         except:
             raise RuntimeError("There was an error in the computation of the vertices for the polytope. Make sure that your polytope is closed since this is the main source of failure for the algorithm")
 
-        self._is_parametric     = is_parametric
-    
     @property
     def state_space_dim(self)-> int:
         return self._state_space_dim
@@ -413,6 +406,8 @@ class PolytopicPredicate(ABC):
         return self._polytope
     @property
     def center(self):
+        if self._center.size == 0 :
+            raise ValueError("The predicate is parametric and does not have a center")
         return self._center
     @property
     def A(self):
@@ -430,12 +425,11 @@ class PolytopicPredicate(ABC):
 
 class IndependentPredicate(PolytopicPredicate):
     def __init__(self,polytope_0: pc.Polytope , 
-                      center:     np.ndarray, 
                       agent_id: UniqueIdentifier,
-                      is_parametric: bool=False) -> None:
+                      center:     np.ndarray = np.empty((0))) -> None:
         
         # initialize parent predicate
-        super().__init(polytope_0 ,center,is_parametric)
+        super().__init(polytope_0 ,center)
         
         self._contributing_agents = [agent_id]
         self._agent_id = agent_id
@@ -450,13 +444,12 @@ class IndependentPredicate(PolytopicPredicate):
         
 class CollaborativePredicate(PolytopicPredicate):
     def __init__(self,polytope_0: pc.Polytope , 
-                      center:     np.ndarray, 
                       source_agent_id: UniqueIdentifier,
                       target_agent_id: UniqueIdentifier,
-                      is_parametric: bool=False) -> None:
+                      center:     np.ndarray = np.empty((0))) -> None:
         
         # initialize parent predicate
-        super().__init(polytope_0 ,center,is_parametric)
+        super().__init(polytope_0,center)
         
         self._source_agent_id = source_agent_id
         self._target_agent_id  = target_agent_id
@@ -485,7 +478,8 @@ class CollaborativePredicate(PolytopicPredicate):
         self._source_agent_id = dummy
         
         # change center direction of the predicate
-        self._center = - self._center
+        if not self._is_parametric :
+            self._center = - self._center
         # change matrix A
         self._polytope = pc.Polytope(-self._polytope.A,self._polytope.b)
         
@@ -493,6 +487,7 @@ class CollaborativePredicate(PolytopicPredicate):
 class StlTask:
     """STL TASK"""
     
+    _id_generator = 0
     def __init__(self,temporal_operator:TemporalOperator, predicate:PolytopicPredicate):
         
         """
@@ -505,7 +500,10 @@ class StlTask:
         
         self._predicate              :PolytopicPredicate  = predicate
         self._temporal_operator      :TemporalOperator    = temporal_operator
-        self._parent_task            :"StlTask"           = None  # instance of the parent class
+        self._task_id                 :int                 = StlTask._id_generator #unique id for this task
+        
+        # Add to counter to spin the id generation.
+        StlTask._id_generator += 1 
         
     @property
     def predicate(self):
@@ -518,18 +516,14 @@ class StlTask:
         return self._predicate.state_space_dim     
     @property
     def is_parametric(self):
-        return self._predicate.is_parametric  
+        return self._predicate.is_parametric
     @property
-    def parent_task_id(self):
-        if self._parent_task is None :
-            raise ValueError("The task does not have a parent task specified")
-        return id(self._parent_task)
+    def predicate(self):
+        return self._predicate
+    @property
+    def task_id(self):
+        return self._task_id
     
-    @property
-    def  parent_task(self):
-        if self._parent_task is None :
-            raise ValueError("The task does not have a parent task specified")
-        return self._parent_task
     
     def flip(self) :
         """Flips the direction of the predicate"""
@@ -537,16 +531,10 @@ class StlTask:
             raise ValueError("The task is not a collaborative task. Individual tasks cannot be flipped")
         self._predicate.flip()
         
-    def set_parent_task(self,parent_task:"StlTask")-> None:
-        
-        if not self._predicate.is_parametric :
-            raise Warning("The task is not parametric. The parent task setting will be ignored")
-        
-        self._parent_task = parent_task
-       
-    
 
-def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:UniqueIdentifier, target_agent_id : UniqueIdentifier) -> StlTask :
+
+
+def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:UniqueIdentifier, target_agent_id : UniqueIdentifier, decomposition_path = list[int]) -> StlTask :
     """Creates a parametric collaborative task from a given collaborative task, with anew source and target agents"""
     
     if isinstance(task.predicate,IndependentPredicate) :
@@ -557,13 +545,12 @@ def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:Un
     temporal_operator = task.temporal_operator
     
     predicate =  CollaborativePredicate(polytope_0      = polytope , 
-                                  center          = center, 
-                                  source_agent_id = source_agent_id,
-                                  target_agent_id = target_agent_id,
-                                  is_parametric   = True)
+                                        center          = np.empty((0)), # set to empty as it is a new parametric task
+                                        source_agent_id = source_agent_id,
+                                        target_agent_id = target_agent_id)
     
     child_task:StlTask = StlTask(temporal_operator = temporal_operator, predicate = predicate)
-    child_task.set_parent_task(parent_task = task)
+    child_task.set_parent_task_and_decomposition_path(parent_task = task, decomposition_path = decomposition_path)
     
     return child_task
 
