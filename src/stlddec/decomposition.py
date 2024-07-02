@@ -194,7 +194,7 @@ class TaskOptiContainer :
                      (edge[0] == self.task.predicate.target_agent) or 
                      (edge[1] == self.task.predicate.target_agent) ) :
                     
-                    self._neighbour_edges_id.append(tuple_to_int(edge))
+                    self._neighbour_edges_id.append(edge_to_int(edge))
                     
         # Initialize consensus parameters and lagrangian multiplies         
         for edge in self._neighbour_edges_id :
@@ -210,7 +210,6 @@ class TaskOptiContainer :
     def step_consensus_variable_from_self(self,neighbour_edge_id:int,learning_rate:float) -> None :
         self._consensus_param_neighbours_from_self[neighbour_edge_id] -= (self._lagrangian_param_neighbours_from_self - self._lagrangian_param_neighbours_from_neighbours[neighbour_edge_id])*learning_rate
          
-    
     # updating consensus variables
     def update_consensus_variable_from_neighbours(self,neighbour_edge_id:int,consensus_variable:np.ndarray) -> None :
          self._consensus_param_neighbours_from_neighbours[neighbour_edge_id] = consensus_variable
@@ -277,16 +276,16 @@ class EdgeComputingAgent(Publisher) :
         
         self._optimizer         : ca.Opti          = ca.Opti() # optimizer for the single agent.
         self._edge              : int              = edge 
-        self._edge_id           : int              = tuple_to_int(edge)
+        self._edge_id           : int              = edge_to_int(edge)
         self._task_containers   : list[TaskOptiContainer] = [] # list of task containers.
         self._is_computing_edge : bool = False
        
         self._warm_start_solution : ca.OptiSol   = None
         self._was_solved_already_once = False
 
-        self._num_iterations  = None
-        self._current_iteration = 0
-        
+        self._num_iterations      = None
+        self._current_iteration   = 0
+        self._learning_rate_0     = 0.9           # initial value of the learning rate 
         
         self._penalty = self._optimizer.variable(1)
         self._optimizer.subject_to(self._penalty>=0)
@@ -584,8 +583,17 @@ class EdgeComputingAgent(Publisher) :
             
         # Update current iteration count.
         self._current_iteration += 1
+        
     
+    def step_consensus_variables_with_currently_available_lagrangian_coefficients(self) -> None :
+        learning_rate = self._learning_rate_0 * (1/self._current_iteration)**0.7
+        for task_container in self._task_containers :
+            if task_container.task.is_parametric :
+                for edge_id in task_container.neighbour_edges_id :
+                    task_container.step_consensus_variable_from_self(neighbour_edge_id = edge_id,learning_rate = learning_rate)
+                    
     
+    # Callbacks and notifications.
     def update_consensus_variable_from_edge_neighbour_callback(self,consensus_variables_map_from_neighbour:dict[int,np.ndarray],neighbour_edge_id:int, parent_task_id:int) -> None :
         """Update the task of the agent"""
         for task_container in self._task_containers :
@@ -625,7 +633,6 @@ class EdgeComputingAgent(Publisher) :
                         callback( task_container._lagrangian_param_neighbours_from_self , self._edge_id , task_container.parent_task_id )
             
           
-#!Currently working here
 def run_task_decomposition(edge_map: UndirectedEdgeMapping[GraphEdge]) :
     """Task decomposition pipeline"""
             
@@ -648,7 +655,7 @@ def run_task_decomposition(edge_map: UndirectedEdgeMapping[GraphEdge]) :
     
     # crate a computing node for each node in the graph
     for edge in comm_graph.edges :
-        decomposition_agents[tuple_to_int(edge)] = EdgeComputingAgent(edge=edge)
+        decomposition_agents[edge_to_int(edge)] = EdgeComputingAgent(edge=edge)
     
     path_list : list[int] =  []
     
@@ -709,45 +716,45 @@ def run_task_decomposition(edge_map: UndirectedEdgeMapping[GraphEdge]) :
         # Everyone solves the local problem and updates the lagrangian variables.
         for agent in decomposition_agents.values() :
             agent.solve_local_problem(  print_result=False )
-        
-        # Everyone notifies about the new lagrangian coefficient found.
-        for agent in decomposition_agents.values() :
-            agent.notify("new_consensus_variable")
-        
-        
+            
         # Everyone updates the value of the consensus variables.
         for agent in decomposition_agents.values() :
             agent.notify("new_lagrangian_variable")
         
+        # Everyone updates the consensus variables using the lagrangian coefficients updates.
+        for agent in decomposition_agents.values() :
+            agent.step_consensus_variables_with_currently_available_lagrangian_coefficients()
         
         
-    #! come back from here.
-    fig,(ax1,ax2) = plt.subplots(1,2)
-    for agentID,agent in decompositionAgents.items() :
-        if agent.is_initialized_for_optimization :
-            ax1.plot(range(num_optimization_iterations),agent._penaltyValues,label=f"Agent :{agentID}")
-            ax1.set_ylabel("penalties")
+        
+        
+    # #! come back from here.
+    # fig,(ax1,ax2) = plt.subplots(1,2)
+    # for agentID,agent in decompositionAgents.items() :
+    #     if agent.is_initialized_for_optimization :
+    #         ax1.plot(range(num_optimization_iterations),agent._penaltyValues,label=f"Agent :{agentID}")
+    #         ax1.set_ylabel("penalties")
             
-            ax2.plot(range(num_optimization_iterations),agent._cost_values,label=f"Agent :{agentID}")
-            ax2.set_ylabel("cost")
+    #         ax2.plot(range(num_optimization_iterations),agent._cost_values,label=f"Agent :{agentID}")
+    #         ax2.set_ylabel("cost")
     
-    ax1.legend()
-    ax2.legend()
-    printDecompositionResult(decompositionPaths =path_list, decompositionAgents =decompositionAgents, edge_objectsLists = edge_list)
+    # ax1.legend()
+    # ax2.legend()
+    # printDecompositionResult(decompositionPaths =path_list, decompositionAgents =decompositionAgents, edge_objectsLists = edge_list)
     
-    # now that the tasks have been decomposed it is time to clean the old tasks and construct the new taskGraph
-    for edge_obj in edge_list :
-        if (not edge_obj.is_communicating) and (edge_obj.hasSpecifications) :
-            edge_obj.cleanTasks()     # after you have decomposed the tasks you can just clean them
+    # # now that the tasks have been decomposed it is time to clean the old tasks and construct the new taskGraph
+    # for edge_obj in edge_list :
+    #     if (not edge_obj.is_communicating) and (edge_obj.hasSpecifications) :
+    #         edge_obj.cleanTasks()     # after you have decomposed the tasks you can just clean them
     
-    finalTaskGraph : nx.Graph = createTaskGraphFromEdges(edge_list=edge_list)
+    # finalTaskGraph : nx.Graph = createTaskGraphFromEdges(edge_list=edge_list)
     
-    nodesAttributes = deperametrizeTasks(decompostionAgents=decompositionAgents)
+    # nodesAttributes = deperametrizeTasks(decompostionAgents=decompositionAgents)
  
-    # set the attributes
-    nx.set_node_attributes(finalTaskGraph,nodesAttributes)
+    # # set the attributes
+    # nx.set_node_attributes(finalTaskGraph,nodesAttributes)
     
-    return comm_graph,finalTaskGraph,original_task_graph
+    return comm_graph,original_task_graph,computing_graph
 
 
     
@@ -860,7 +867,7 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
                 
                 task_container.task.predicate.A
                 # create a new task out of the parameteric one
-                predicate = PolytopicPredicate(A     = task_container.task.predicate.A,
+                predicate = AbstractPolytopicPredicate(A     = task_container.task.predicate.A,
                                                      b     = scale*task_container.task.predicate.b,
                                                      center= center)
                 task = StlTask(temporalOperator   = task_container.task.temporal_operator,
@@ -895,7 +902,7 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
                     
                 task_container.task.predicate.A
                 # create a new task out of the parameteric one
-                predicate = PolytopicPredicate(A     = task_container.task.predicate.A,
+                predicate = AbstractPolytopicPredicate(A     = task_container.task.predicate.A,
                                                      b     = scale*task_container.task.predicate.b,
                                                      center= center)
                 task = StlTask(temporalOperator   = task_container.task.temporal_operator,

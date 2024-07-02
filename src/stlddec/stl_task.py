@@ -2,14 +2,13 @@ import numpy as np
 import casadi as ca
 import polytope as pc
 from   typing import TypeAlias
-from abc import ABC, abstractmethod
+from   abc import ABC, abstractmethod
 
-UniqueIdentifier : TypeAlias = int # identifier of a single agent in the system
+UniqueIdentifier : TypeAlias = int #Identifier of a single agent in the system
 
 # Temporal Operators 
 class TimeInterval :
-    """time interval class"""
-    # empty set is represented by a double a=None b = None
+    """ Time interval class to represent time intervals in the STL tasks"""
     def __init__(self,a:float|None = None,b:float|None =None) -> None:
         
         
@@ -158,15 +157,13 @@ class TemporalOperator(ABC):
     def time_interval(self) -> TimeInterval:
         return self._time_interval
     
-    
-    
 
 class AlwaysOperator(TemporalOperator):
     def __init__(self,time_interval:TimeInterval) -> None:
         
         super().__init__(time_interval)
-        self._time_of_satisfaction   : float        = self._time_interval.a
-        self._time_of_remotion      : float        = self._time_interval.b
+        self._time_of_satisfaction   : float  = self._time_interval.a
+        self._time_of_remotion      : float   = self._time_interval.b
     
     @property
     def time_of_satisfaction(self) -> float:
@@ -188,10 +185,11 @@ class EventuallyOperator(TemporalOperator):
         """
         super().__init__(time_interval)
         self._time_of_satisfaction : float       = time_of_satisfaction
-        self._time_of_remotion    : float        = self._time_interval.b
+        self._time_of_remotion    : float        = self._time_of_satisfaction
         
-        if time_of_satisfaction == None :
+        if time_of_satisfaction == None : # if not given pick a random number in the interval
             self._time_of_satisfaction = time_interval.a + np.random.rand()*(time_interval.b- time_interval.a)
+            self._time_of_remotion     = self._time_of_satisfaction
             
         elif time_of_satisfaction<time_interval.a or time_of_satisfaction>time_interval.b :
             raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{time_interval.a},{time_interval.b}]")
@@ -206,155 +204,66 @@ class EventuallyOperator(TemporalOperator):
 
 
 
-#!TODO: Still under development
-class AlwaysEventuallyOperator(TemporalOperator):
-    def __init__(self,always_time_interval:TimeInterval,eventually_time_interval:TimeInterval,eventually_time_of_satisfaction:float=None) -> None:
+#!TODO: Still under development. Do not use for now.
+# class AlwaysEventuallyOperator(TemporalOperator):
+#     def __init__(self,always_time_interval:TimeInterval,eventually_time_interval:TimeInterval,eventually_time_of_satisfaction:float=None) -> None:
         
-        #pick it random if not given
-        if eventually_time_of_satisfaction == None :
-            eventually_time_of_satisfaction = eventually_time_interval.a + np.random.rand()*(eventually_time_interval.b- eventually_time_interval.a) # random time of satisfaction
-        else :
-            if eventually_time_of_satisfaction<eventually_time_interval.a or eventually_time_of_satisfaction>eventually_time_interval.b :
-                raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{eventually_time_interval.a},{eventually_time_interval.b}]")
+#         #pick it random if not given
+#         if eventually_time_of_satisfaction == None :
+#             eventually_time_of_satisfaction = eventually_time_interval.a + np.random.rand()*(eventually_time_interval.b- eventually_time_interval.a) # random time of satisfaction
+#         else :
+#             if eventually_time_of_satisfaction<eventually_time_interval.a or eventually_time_of_satisfaction>eventually_time_interval.b :
+#                 raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{eventually_time_interval.a},{eventually_time_interval.b}]")
         
-        self._period               : TimeInterval = eventually_time_of_satisfaction # from the point "a" of the evetually, we have that the task is satisfied everty evetually_time_of_satsifaction
+#         self._period               : TimeInterval = eventually_time_of_satisfaction # from the point "a" of the evetually, we have that the task is satisfied everty evetually_time_of_satsifaction
         
-        self._time_of_satisfaction : float       = always_time_interval.a + eventually_time_interval.a # we satisfy at the initial time of the always first
+#         self._time_of_satisfaction : float       = always_time_interval.a + eventually_time_interval.a # we satisfy at the initial time of the always first
         
-        self._time_of_remotion     : float       = self._time_of_satisfaction +  np.ceil((always_time_interval.b - self._time_of_satisfaction)/ self._period) * self._period
+#         self._time_of_remotion     : float       = self._time_of_satisfaction +  np.ceil((always_time_interval.b - self._time_of_satisfaction)/ self._period) * self._period
 
         
-    @property
-    def time_of_satisfaction(self) -> float:
-        return self._time_of_satisfaction
+#     @property
+#     def time_of_satisfaction(self) -> float:
+#         return self._time_of_satisfaction
     
-    @property
-    def time_of_remotion(self) -> float:
-        return self._time_of_remotion
+#     @property
+#     def time_of_remotion(self) -> float:
+#         return self._time_of_remotion
    
-    @property
-    def period(self) -> TimeInterval:
-        return self._period
+#     @property
+#     def period(self) -> TimeInterval:
+#         return self._period
 
-#!TODO: Still under development
-class EventuallyAlwaysOperator(TemporalOperator):
-    def __init__(self,always_time_interval:TimeInterval,eventually_time_interval:TimeInterval,eventually_time_of_satisfaction:float=None) -> None:
+#!TODO: Still under development. Do not use for now.
+# class EventuallyAlwaysOperator(TemporalOperator):
+#     def __init__(self,always_time_interval:TimeInterval,eventually_time_interval:TimeInterval,eventually_time_of_satisfaction:float=None) -> None:
         
         
-        if eventually_time_of_satisfaction == None :
-             self._time_of_satisfaction = eventually_time_interval.a + np.random.rand()*(eventually_time_interval.b- eventually_time_interval.a) # random time of satisfaction
-        else :
-            if eventually_time_of_satisfaction<eventually_time_interval.a or eventually_time_of_satisfaction>eventually_time_interval.b :
-                raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{eventually_time_interval.a},{eventually_time_interval.b}]")
+#         if eventually_time_of_satisfaction == None :
+#              self._time_of_satisfaction = eventually_time_interval.a + np.random.rand()*(eventually_time_interval.b- eventually_time_interval.a) # random time of satisfaction
+#         else :
+#             if eventually_time_of_satisfaction<eventually_time_interval.a or eventually_time_of_satisfaction>eventually_time_interval.b :
+#                 raise ValueError(f"For eventually formulas you need to specify a time a satisfaction for the formula in the range of your time interval [{eventually_time_interval.a},{eventually_time_interval.b}]")
             
-        self._time_of_satisfaction : float    = eventually_time_of_satisfaction
-        self._time_of_remotion     : float    = self._time_of_satisfaction  + always_time_interval.period
+#         self._time_of_satisfaction : float    = eventually_time_of_satisfaction
+#         self._time_of_remotion     : float    = self._time_of_satisfaction  + always_time_interval.period
 
-    @property
-    def time_of_satisfaction(self) -> float:
-        return self._time_of_satisfaction
+#     @property
+#     def time_of_satisfaction(self) -> float:
+#         return self._time_of_satisfaction
     
-    @property
-    def time_of_remotion(self) -> float:
-        return self._time_of_remotion
+#     @property
+#     def time_of_remotion(self) -> float:
+#         return self._time_of_remotion
    
     
 
+# Predicates and tasks
 
-
-
-
-# Some support functions    
-def first_word_before_underscore(string: str) -> str:
-    """split a string by underscores and return the first element"""
-    return string.split("_")[0]
-
-
-def check_barrier_function_input_names(barrier_function: ca.Function)-> bool:
-    for name in barrier_function.name_in():
-        if not first_word_before_underscore(name) in ["state","time"]:
-            return False
-    return True    
-
-def check_barrier_function_output_names(barrier_function: ca.Function)->bool:
-    for name in barrier_function.name_out():
-        if not first_word_before_underscore(name) == "value":
-            return False
-    return True
-
-def is_time_state_present(barrier_function: ca.Function) -> bool:
-    return "time" in barrier_function.name_in() 
-
-
-def check_barrier_function_IO_names(barrier_function: ca.Function) -> bool:
-    if not check_barrier_function_input_names(barrier_function) :
-         raise ValueError("The input names for the predicate functons must be in the form 'state_i' where ''i'' is the agent ID and the output name must be 'value', got input nmaes " + str(function.name_in()) + " and output names " + str(function.name_out()) + " instead")
+class AbstractPolytopicPredicate(ABC):
+    """Abstract class to define polytopic predicates"""
     
-    elif not is_time_state_present(barrier_function) :
-        raise ValueError("The time variable is not present in the input names of the barrier function. PLease make sure this is a function of time also (even if time could be not part of the barrier just put it as an input)")
-    elif not check_barrier_function_output_names(barrier_function) :
-        raise ValueError("The output name of the barrier function must be must be 'value'")
-    
-
-def check_predicate_function_input_names(predicate_function: ca.Function)-> bool:
-    for name in predicate_function.name_in():
-        if not first_word_before_underscore(name) in ["state"]:
-            return False
-    return True    
-
-
-def check_predicate_function_output_names(predicate_function: ca.Function)->bool:
-    for name in predicate_function.name_out():
-        if not first_word_before_underscore(name) == "value":
-            return False
-    return True
-
-
-def check_predicate_function_IO_names(predicate_function: ca.Function) -> bool:
-    return check_predicate_function_input_names(predicate_function) and check_predicate_function_output_names(predicate_function)
-
-
-def state_name_str(agent_id: UniqueIdentifier) -> str:
-    """_summary_
-
-    Args:
-        agent_id (UniqueIdentifier): _description_
-
-    Returns:
-        _type_: _description_
-    """    
-    return f"state_{agent_id}"
-
-def get_id_from_input_name(input_name: str) -> UniqueIdentifier:
-    """Support function to get the id of the agents involvedin the satisfaction of this barrier function
-
-    Args:
-        input_names (list[str]): _description_
-
-    Returns:
-        list[UniqueIdentifier]: _description_
-    """    
-    if not isinstance(input_name,str) :
-        raise ValueError("The input names must be a string")
-    
- 
-    splitted_input_name = input_name.split("_")
-    if 'state' in splitted_input_name :
-        ids = int(splitted_input_name[1])
-    else :
-        raise RuntimeError("The input name must be in the form 'state_i' where ''i'' is the agent ID")
-    
-    return ids
-
-
-
-
-
-
-#################################################################
-
-class PolytopicPredicate(ABC):
-    """Class to define polytopic predicate containing the origin"""
+    @abstractmethod
     def __init__(self, polytope_0: pc.Polytope , 
                        center:     np.ndarray = np.empty((0))) -> None:
         """_summary_
@@ -369,25 +278,27 @@ class PolytopicPredicate(ABC):
         """
         
         
-        # when the predicate is parameteric, then the center is assumed to be the one assigned to the orginal predicate from which the predicate is derived for the decomspotion
-        
+        # when the predicate is parametric, then the center is assumed to be the one assigned to the orginal predicate from which the predicate is derived for the decomspotion
         
         if center.size == 0 :
-            self._is_parametric     = True
+            self._is_parametric = True
+        else :
+            self._is_parametric = False
             
         if center.ndim == 1 and center.size != 0 :
-            center = center.expand_dims(1) 
+            center = np.expand_dims(center,1) 
+        self._center  = center # center of the polygone
             
 
-        self._polytope   = polytope_0
-        if self._polytope.contains(np.zeros((self._polytope.A.shape[0],1))):
-            raise ValueError("The center of the polytope must be inside the polytope")
+        self._polytope   = polytope_0.copy() # to stay on the safe side and avoid multiple references to the same object from different predicates.
         
-        self._center     = center # center of the polygone
+        if not self._polytope.contains(np.zeros((self._polytope.A.shape[1],1))):
+            raise ValueError("The polytope should contain the origin to be considered a valid polytope.")
+        
         self._num_hyperplanes , self._state_space_dim = np.shape(polytope_0.A)
             
         try :
-            self._vertices    = [ np.expand_dims(vertex,1) for vertex in  [*pc.extreme(self._polytope)]    ] # unpacks vertices as a list of column vectors
+            self._vertices    = [np.expand_dims(vertex,1) for vertex in  [*pc.extreme(self._polytope)] ] # unpacks vertices as a list of column vectors
             self._num_vertices = len(self._vertices) 
         except:
             raise RuntimeError("There was an error in the computation of the vertices for the polytope. Make sure that your polytope is closed since this is the main source of failure for the algorithm")
@@ -423,13 +334,13 @@ class PolytopicPredicate(ABC):
         return self._is_parametric
     
 
-class IndependentPredicate(PolytopicPredicate):
+class IndependentPredicate(AbstractPolytopicPredicate):
     def __init__(self,polytope_0: pc.Polytope , 
                       agent_id: UniqueIdentifier,
                       center:     np.ndarray = np.empty((0))) -> None:
         
         # initialize parent predicate
-        super().__init(polytope_0 ,center)
+        super().__init__(polytope_0 ,center)
         
         self._contributing_agents = [agent_id]
         self._agent_id = agent_id
@@ -442,18 +353,19 @@ class IndependentPredicate(PolytopicPredicate):
         return self._agent_id
     
         
-class CollaborativePredicate(PolytopicPredicate):
+class CollaborativePredicate(AbstractPolytopicPredicate):
     def __init__(self,polytope_0: pc.Polytope , 
                       source_agent_id: UniqueIdentifier,
                       target_agent_id: UniqueIdentifier,
                       center:     np.ndarray = np.empty((0))) -> None:
         
         # initialize parent predicate
-        super().__init(polytope_0,center)
+        super().__init__(polytope_0,center)
         
         self._source_agent_id = source_agent_id
         self._target_agent_id  = target_agent_id
-        
+        if source_agent_id == target_agent_id :
+            raise ValueError("The source and target agents must be different since this is a collaborative predictae. Use the IndependentPredicate class for individual predicates")
         
     @property
     def source_agent(self):
@@ -487,8 +399,8 @@ class CollaborativePredicate(PolytopicPredicate):
 class StlTask:
     """STL TASK"""
     
-    _id_generator = 0
-    def __init__(self,temporal_operator:TemporalOperator, predicate:PolytopicPredicate):
+    _id_generator = 0 # counts instances of the class (used to generate unique ids for the tasks).
+    def __init__(self,temporal_operator:TemporalOperator, predicate:AbstractPolytopicPredicate):
         
         """
         Args:
@@ -498,11 +410,11 @@ class StlTask:
         
         # if a predicate function is not assigned, it is considered that the predicate is parametric
         
-        self._predicate              :PolytopicPredicate  = predicate
+        self._predicate              :AbstractPolytopicPredicate  = predicate
         self._temporal_operator      :TemporalOperator    = temporal_operator
-        self._task_id                 :int                 = StlTask._id_generator #unique id for this task
+        self._task_id                :int                 = StlTask._id_generator #unique id for this task
         
-        # Add to counter to spin the id generation.
+        # spin the id_generator counter.
         StlTask._id_generator += 1 
         
     @property
@@ -532,149 +444,275 @@ class StlTask:
         self._predicate.flip()
         
 
-
-
-def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:UniqueIdentifier, target_agent_id : UniqueIdentifier, decomposition_path = list[int]) -> StlTask :
+def create_parametric_collaborative_task_from(task : StlTask, source_agent_id:UniqueIdentifier, target_agent_id : UniqueIdentifier) -> StlTask :
     """Creates a parametric collaborative task from a given collaborative task, with anew source and target agents"""
     
     if isinstance(task.predicate,IndependentPredicate) :
         raise ValueError("The task is not a collaborative task. Individual tasks are not supported")
     
-    polytope          = task.predicate.polytope
-    center            = task.predicate.center
+    polytope          = task.predicate.polytope.copy()
     temporal_operator = task.temporal_operator
     
     predicate =  CollaborativePredicate(polytope_0      = polytope , 
-                                        center          = np.empty((0)), # set to empty as it is a new parametric task
                                         source_agent_id = source_agent_id,
                                         target_agent_id = target_agent_id)
     
     child_task:StlTask = StlTask(temporal_operator = temporal_operator, predicate = predicate)
-    child_task.set_parent_task_and_decomposition_path(parent_task = task, decomposition_path = decomposition_path)
-    
     return child_task
 
 
 
-def get_M_and_Z_matrices_from_inclusion(P_including:StlTask|PolytopicPredicate, P_included:StlTask|PolytopicPredicate) -> tuple[np.ndarray,np.ndarray]:
+def get_M_and_Z_matrices_from_inclusion(P_including:StlTask|AbstractPolytopicPredicate, P_included:StlTask|AbstractPolytopicPredicate) -> tuple[np.ndarray,np.ndarray]:
     
     if isinstance(P_including,StlTask) :
-        P_including : PolytopicPredicate = P_including.predicate
+        P_including : AbstractPolytopicPredicate = P_including.predicate
     if isinstance(P_included,StlTask) :
-        P_included : PolytopicPredicate = P_included.predicate
+        P_included : AbstractPolytopicPredicate = P_included.predicate
     
+    if P_including.state_space_dim != P_included.state_space_dim :
+        raise ValueError("The state space dimensions of the two predicates do not match. Please provide predicates with same state space dimensions")
     
     vertices        = P_included.vertices
     num_vertices    = P_included.num_vertices
-    state_space_dim = P_included.state_space_dim
+    state_space_dim = P_included.state_space_dim # same for both predicates
+    
     
     M = []
     for vertex in vertices:
         G_k = np.hstack((np.eye(state_space_dim),vertex))
         M.append(P_including.polytope.A@ G_k)
-    
+        
     M     = np.vstack(M)
-    A_bar = np.hstack((P_including.polytope.A, P_including.polytope.b))
-    Z     = np.outer(np.ones((num_vertices,1)),A_bar)    
+    z     = np.expand_dims(P_including.polytope.b,axis=1) # make column
+    A_bar = np.hstack((P_including.polytope.A, z))
+    Z     = np.kron(np.ones((num_vertices,1)),A_bar)    
     
     return M,Z
 
 
 
-def communication_consistency_matrices_for(task:StlTask) -> list[np.ndarray]:
+def communication_consistency_matrices_for(task:StlTask,pos_dim:int = 2) -> list[np.ndarray]:
     
     vertices = task.predicate.vertices
+    # assume the first `pos_dim` dimensions are the position dimensions
+    S = np.eye(pos_dim) 
     
     N = []
     for vertex in vertices:
-        Nk = vertex.T@vertex
+        Gk = np.hstack((np.eye(task.predicate.state_space_dim),vertex))
+        Nk = (S@Gk).T @ (S@Gk)
         N += [Nk]
     
     return  N
 
 
-def random_2D_polytope(numberHyperplanes : int, distanceFromCenter: float,center:np.ndarray) -> PolytopicPredicate:
+def random_2D_polytope(number_hyperplanes : int, max_distance_from_center: float) -> AbstractPolytopicPredicate:
     
-    numberHyperplanes = int(numberHyperplanes) # convert to int
+    number_hyperplanes = int(number_hyperplanes) # convert to int
     
-    if distanceFromCenter<=0 :
-        raise ValueError("distanceFromCenter must be a positive number")
-    if numberHyperplanes<=2 :
-        raise ValueError("number of hiperplames need to be higher than 2 in two dimensions")
+    if max_distance_from_center<=0 :
+        raise ValueError("Distance_from_center must be a positive number")
+    if number_hyperplanes<=2 :
+        raise ValueError("Number of hyperplanes needs to be higher than 2 in two dimensions in order to form a closed polytope (a simplex).")
     
-    step = 360/numberHyperplanes
-    A = np.zeros((numberHyperplanes,2))
-    z = np.ones((numberHyperplanes,1))*distanceFromCenter
+    step = 360/number_hyperplanes
+    A = np.zeros((number_hyperplanes,2))
+    z = np.random.random((number_hyperplanes,1))*max_distance_from_center
     
-    # S =  -1+ 0.5*np.diag(np.random.random(2))
-    S = np.eye(2)
+    theta = 2*np.pi*np.random.rand()
+    R     = np.array([[np.cos(theta),np.sin(theta)],[-np.sin(theta),np.cos(theta)]])
+    
+    for jj,angle in enumerate(np.deg2rad(np.arange(0,360,step))) :
+        random_direction = np.array([[np.sin(angle)],[np.cos(angle)]])
+        A[jj,:] = np.squeeze(R@random_direction )
+    
+    
+    return A,z
+    
+
+
+def regular_2D_polytope(number_hyperplanes : int, distance_from_center: float) -> AbstractPolytopicPredicate :
+    
+    number_hyperplanes = int(number_hyperplanes) # convert to int
+    
+    if distance_from_center<=0 :
+        raise ValueError("Distance_from_center must be a positive number")
+    if number_hyperplanes<=2 :
+        raise ValueError("Number of hyperplanes needs to be higher than 2 in two dimensions in order to form a closed polytope (a simplex).")
+    
+    step = 360/number_hyperplanes
+    A = np.zeros((number_hyperplanes,2))
+    z = np.ones((number_hyperplanes,1))*distance_from_center
     theta = 2*np.pi*np.random.rand()
     R = np.array([[np.cos(theta),np.sin(theta)],[-np.sin(theta),np.cos(theta)]])
     
     for jj,angle in enumerate(np.deg2rad(np.arange(0,360,step))) :
-        A[jj,:] = np.squeeze(R@S@np.array([[np.sin(angle)],[np.cos(angle)]]))
+       
+       direction = np.array([[np.sin(angle)],[np.cos(angle)]])
+       A[jj,:]   = np.squeeze(R@direction)
     
-    
-    return PolytopicPredicate(A = A, b = z,center=center)
-    
-
-
-def regular_2D_polytope(numberHyperplanes : int, distanceFromCenter: float,center:np.ndarray) -> PolytopicPredicate :
-    
-    numberHyperplanes = int(numberHyperplanes) # convert to int
-    
-    if distanceFromCenter<=0 :
-        raise ValueError("distanceFromCenter must be a positive number")
-    if numberHyperplanes<=2 :
-        raise ValueError("number of hiperplames need to be higher than 2 in two dimensions")
-    
-    step = 360/numberHyperplanes
-    A = np.zeros((numberHyperplanes,2))
-    z = np.ones((numberHyperplanes,1))*distanceFromCenter
-    theta = 2*np.pi*np.random.rand()
-    R = np.array([[np.cos(theta),np.sin(theta)],[-np.sin(theta),np.cos(theta)]])
-    for jj,angle in enumerate(np.deg2rad(np.arange(0,360,step))) :
-       A[jj,:] = np.squeeze(R@np.array([[np.sin(angle)],[np.cos(angle)]]))
-    
-    return PolytopicPredicate(A = A, b = z,center=center)
+    return A,z
 
 
 
 def normal_form(A : np.ndarray,b : np.ndarray) :
     
+    # normalize the rows of A
+    normA = np.sqrt(np.sum(A**2,axis=1))
+    A    = A/normA[:,np.newaxis]
+    b    = b/normA
     
-    for jj in range(len(b)) :
-        normAi = np.sqrt(np.sum(A[jj,:]**2))
-        b[jj]   /= normAi
-        A[jj,:] /= normAi
-
-        
-        if b[jj] <0 :
-            b[jj]   = - b[jj]
-            A[jj,:] = - A[jj,:]
+    # make sure that the b values are positive
+    neg_pos = b<0
+    A[neg_pos] = -A[neg_pos]
+    b[neg_pos] = -b[neg_pos]
     
     return A,b
-
-
-def rotation_matrix_2D(angle:float):
-    """rotation angle in radians"""
-    R = np.array([ np.cos(angle),np.sin(angle),
-                  -np.sin(angle),np.cos(angle)])
-    
         
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
              
 if __name__ =="__main__" :
-    pass
     
+    
+    def separate_line():
+        print("Passed")
+        print("-------------------------------------------------------")
+    
+    show_figures = False
+    
+    import matplotlib.pyplot as plt
+    # Test 1 : Normal form
+    print("Test 1 : Normal form")
+    A = np.array([[20,1],[1,-20]])
+    b = np.array([[1],[-1]])
+    A,b = normal_form(A,b)
+    print(A)
+    print(np.linalg.norm(A,axis=1))
+    
+    separate_line()
+    # Test 2 : Regular 2D polytope
+    print("Test 2 : Regular 2D polytope")
+    
+    
+    dist   = 1
+    step   = 2*dist +1
+    center = np.array([[0],[0]])
+    max_hp = 10
+    fig,ax = plt.subplots()
+    ax.set_xlim(- step ,max_hp*step+dist)
+    ax.set_ylim(- step , step )
+    ax.aspect = 'equal'
+    
+    for hp in range(3,10):
+        A,z = regular_2D_polytope(hp,1)
+
+        p = pc.Polytope(A,z+A@center)
+        p.plot(alpha=  0.5,ax = ax)
+        center = center + np.array([[step],[0]])
+    ax.set_title("Regular 2D Polytopes")
+    
+    separate_line()
+    # Test 3 : Random 2D polytope
+    print("Test 3 : Random 2D polytope")
+    dist   = 1
+    step   = 2*dist +1
+    center = np.array([[0],[0]])
+    max_hp = 10
+    fig,ax = plt.subplots()
+    ax.set_xlim(- step ,max_hp*step+dist)
+    ax.set_ylim(- step , step )
+    ax.aspect = 'equal'
+    
+    for hp in range(3,10):
+        A,z = random_2D_polytope(hp,1)
+
+        p = pc.Polytope(A,z+A@center)
+        p.plot(alpha=  0.5,ax = ax)
+        center = center + np.array([[step],[0]])
+    
+    ax.set_title("Random 2D Polytopes")
+    
+    separate_line()
+    # Test 4: Test temporal operators 
+    print("Test 4: Test temporal operators and time intervals")
+    time_interval1 = TimeInterval(0,10)
+    time_interval2 = TimeInterval(3,15)
+    intersection   = TimeInterval(3,10)
+    
+    assert time_interval1/time_interval2 == intersection 
+    
+    time_interval1 = TimeInterval(None,None)
+    time_interval2 = TimeInterval(3,15)
+    assert time_interval1/time_interval2 == TimeInterval(None,None) 
+    assert time_interval1.is_empty()
+    
+    time_interval1 = TimeInterval(3,3)
+    time_interval2 = TimeInterval(3,15)
+    assert time_interval1/time_interval2 == TimeInterval(3,3) 
+    assert (time_interval1/time_interval1).is_singular()
+    separate_line()
+    print("Temporal operator G_[0,10]")
+    temporal_operator = AlwaysOperator(TimeInterval(0,10))
+    print("Always operator time of remotion: ",temporal_operator.time_of_remotion)
+    print("Always operator time of satisfaction: ",temporal_operator.time_of_satisfaction)
+    separate_line()
+    
+    temporal_operator = EventuallyOperator(TimeInterval(0,10))
+    print("Eventually operator time of remotion: ",temporal_operator.time_of_remotion)
+    print("Eventually  operator time of satisfaction: ",temporal_operator.time_of_satisfaction)
+    print("Time of satisfaction is the same as time of remotion")
+    assert temporal_operator.time_of_satisfaction >= 0
+    assert temporal_operator.time_of_satisfaction <= 10
+    assert temporal_operator.time_of_remotion == temporal_operator.time_of_satisfaction
+    separate_line()
+    
+    
+    # Test 5: Test predicates
+    A,b = regular_2D_polytope(5,1)
+    P   = CollaborativePredicate(pc.Polytope(A,b.flatten()),source_agent_id=0,target_agent_id=1)    
+    # P   = AbstractPolytopicPredicate(pc.Polytope(A,b)) # throws an error
+    print(A)
+    assert P.is_parametric
+    assert P.state_space_dim == 2
+    assert P.num_hyperplanes == 5
+    assert P.num_vertices == 5
+    
+    P_ind = IndependentPredicate(pc.Polytope(A,b),agent_id=0)
+    assert P_ind.is_parametric
+    P_collab = CollaborativePredicate(pc.Polytope(A,b),source_agent_id=0,target_agent_id=1)
+    P_collab.flip()
+    
+    assert P_collab.source_agent == 1
+    assert not np.all(np.linalg.norm(P_collab.A +A,axis=1))
+    
+    separate_line()
+    # Test 6: Test tasks
+    print("Test 6: Test tasks")
+    task = StlTask(AlwaysOperator(TimeInterval(0,10)),P)
+    assert task.state_space_dimension == 2
+    assert task.is_parametric
+    assert task.predicate == P
+    assert task.task_id == 0
+    
+    for jj in range(10):
+        task = create_parametric_collaborative_task_from(task,source_agent_id=0,target_agent_id=1)
+        assert task.task_id == jj+1
+        print("New task created with id: ",task.task_id)
+    
+    if show_figures:
+        plt.show()
+    
+    # Test inclusions 
+    print("Test 7: Test inclusion matrices")
+    A,b = regular_2D_polytope(5,1)
+    print(b)
+    P_including = CollaborativePredicate(pc.Polytope(A,b),source_agent_id=0,target_agent_id=1)
+    A,b = regular_2D_polytope(3,1)
+    P_included = IndependentPredicate(pc.Polytope(A,b),agent_id=0)
+    
+    M,Z = get_M_and_Z_matrices_from_inclusion(P_including,P_included)
+    print("Matrix M: should be 15x3 and equal to  [A@[I v1] ,A@[I v2],A@[I v3]], with v_i vertices of the included polytope")
+    print(M)
+    print("Matrix Z: should be 15x3 and equal to  [[A z],[A,z],[A,z]]")
+    print(Z)
     

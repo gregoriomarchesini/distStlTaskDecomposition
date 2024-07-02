@@ -8,46 +8,15 @@ W = TypeVar("W")
 
 
 
-
-def tuple_to_int(t:tuple) -> int :
+def edge_to_int(t:tuple[int,int]) -> int :
     """Converts a tuple to an integer"""
-    tuple = tuple(sorted(t))
+    t= sorted(t)
     return int("".join(str(i) for i in t))
 
 
-
-class UndirectedEdgeMapping(dict, Generic[W]):
-    """Helper dictionary class: takes undirected edges as input keys only"""
-    def _normalize_key(self, key):
-        if not isinstance(key, tuple):
-            raise TypeError("Keys must tuples of type (int,int)")
-        if not len(key) == 2:
-            raise TypeError("Keys must tuples of type (int,int)")
-        return tuple(sorted(key))
+class EdgeTaskManager() :
     
-    def __setitem__(self, key, value):
-        normalized_key = self._normalize_key(key)
-        if not isinstance(value, self.__orig_class__.__args__[0]):
-            raise TypeError(f"This dictionary only allows values of type {self.__orig_class__.__args__[0]}")
-        dict.__setitem__(self,normalized_key, value)
-
-    def __getitem__(self, key):
-        normalized_key = self._normalize_key(key)
-        return dict.__getitem__(self,normalized_key)
-
-    def __delitem__(self, key):
-        normalized_key = self._normalize_key(key)
-        dict.__delitem__(self,normalized_key)
-
-    def __contains__(self, key):
-        normalized_key = self._normalize_key(key)
-        return dict.__contains__(self,normalized_key)
-    
-
-    
-class GraphEdge() :
-    
-    def __init__(self, edge_i :int,edge_j:int, is_communicating :int= 0,weight:float=1) -> None:
+    def __init__(self, edge_i :int,edge_j:int, is_communicating :bool= True,weight:float=1) -> None:
      
       if weight<=0 : # only accept positive weights
           raise("Edge weight must be positive")
@@ -74,7 +43,13 @@ class GraphEdge() :
     @property
     def is_communicating(self) :
       return self._is_communicating 
-   
+    
+    @is_communicating.setter
+    def is_communicating(self,value):
+        if not isinstance(value,bool) :
+            raise ValueError("The value must be a boolean for the property is_communicating")
+        self._is_communicating = value
+    
     @property
     def edge(self) :
         return self._edge
@@ -103,12 +78,17 @@ class GraphEdge() :
     
     def is_task_consistent_with_this_edge(self,task:StlTask) -> bool :
         
+        if not isinstance(task,StlTask) :
+            raise ValueError("The task must be a StlTask object")
+        
         if isinstance(task.predicate,CollaborativePredicate) :
             source = task.predicate.source_agent
             target = task.predicate.target_agent
         elif isinstance(task.predicate,IndependentPredicate) :
             source = task.predicate.agent_id
             target = task.predicate.agent_id
+        else :
+            raise ValueError("The predicate must be either a CollaborativePredicate or an IndependentPredicate")
             
         return ( (source,target) == self._edge ) or ( (target,source) == self._edge )
     
@@ -139,36 +119,56 @@ class GraphEdge() :
     def flag_optimization_involvement(self) -> None :
         self._is_involved_in_optimization = True
         
-        
-        
-def compute_weights(source,target,attributesDict) :
-    """takes the edge object from the attributes and returns the wight stored in there"""
-    return attributesDict["edgeObj"].weight    
 
-
-def create_communication_graph_from_edges(edge_map :  UndirectedEdgeMapping[GraphEdge]) :
-    """ Builds a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
+def create_graph_from_edges(edges : list[tuple[int,int]]) :
+    """ Creates a communication graph from a list of edges. The edges are assumed to be undirected and all communicating"""
     
-    comm_graph = nx.Graph()
+    G = nx.Graph()
+    try :
+        for edge in edges :
+            G.add_edge(edge[0],edge[1])
+            G[edge[0]][edge[1]]["tasks_store"] = EdgeTaskManager(edge_i =edge[0],edge_j = edge[1],is_communicating=True)
+    except :
+        raise ValueError("The edges must be a list of tuples. EX: [(1,2), (2,3), ...]")
     
-    for edge,edge_obj in edge_map.items() :
-        if edge_obj.is_communicating : 
-            comm_graph.add_edge(edge[0],edge[1])
-    return comm_graph
+    return G
 
+def break_communication_edge(G:nx.Graph,edges:list[tuple[int,int]]) :
+    """ Breaks the communication between the given edges. The edges are assumed to be undirected. The graph is not copied by the functions so
+        G = break_communication_edge(G,edges) will modify the graph G as well as simply calling break_communication_edge(G,edges) will.
+    """
+    try : 
+        for edge in edges :
+            if G.has_edge(edge[0],edge[1]) :
+                G[edge[0]][edge[1]]["tasks_store"].is_communicating = False
+    except Exception as e:
+        raise ValueError(f"The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The exception rised was the following : \n {e}")
 
-def create_task_graph_from_edges(edge_map :  UndirectedEdgeMapping[GraphEdge]):
+    return G
+
+def extract_task_graph(graph:nx.Graph) :
     """ Builds a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
     
     task_graph = nx.Graph()
-    
-    for edge,edge_obj in edge_map.items() :
-        if edge_obj.has_specifications: 
+    for edge in graph.edges :
+        if graph[edge[0]][edge[1]]["tasks_store"].has_specifications :
             task_graph.add_edge(edge[0],edge[1])
+            task_graph[edge[0]][edge[1]]["tasks_store"] = graph[edge[0]][edge[1]]["tasks_store"]
     return task_graph
+
+def extract_communication_graph(graph:nx.Graph) :
+    """ Builds a directed graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
+    
+    comm_graph = nx.Graph()
+    for edge in graph.edges :
+        if graph[edge[0]][edge[1]]["tasks_store"].is_communicating :
+            print(edge)
+            comm_graph.add_edge(edge[0],edge[1])
+            comm_graph[edge[0]][edge[1]]["tasks_store"] = graph[edge[0]][edge[1]]["tasks_store"]
+    return comm_graph
     
     
-def create_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
+def get_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
     
     computing_graph = nx.Graph()
     if not nx.is_tree(comm_graph) :
@@ -176,16 +176,16 @@ def create_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
     
     for edge in comm_graph.edges :
         
-        computing_graph.add_node(tuple_to_int(edge))
+        computing_graph.add_node(edge_to_int(edge))
     
     for edge in comm_graph.edges :    
         # Get all edges connected to node1 and node2
-        edges_node1 = set(comm_graph.edges.edges(edge[0]))
-        edges_node2 = set(comm_graph.edges.edges(edge[1]))
+        edges_node1 = set(comm_graph.edges(edge[0]))
+        edges_node2 = set(comm_graph.edges(edge[1]))
     
         # Combine the edges and remove the original edge
         adjacent_edges = list((edges_node1 | edges_node2) - {edge})
-        computing_edges = [ (tuple_to_int(edge), tuple_to_int(edge_neigh)) for edge_neigh in adjacent_edges]
+        computing_edges = [ (edge_to_int(edge), edge_to_int(edge_neigh)) for edge_neigh in adjacent_edges]
         
         computing_graph.add_edges_from(computing_edges)
     
@@ -193,9 +193,57 @@ def create_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
     
 if __name__ == "__main__" :
     
-    uem = UndirectedEdgeMapping[str]()
-
-    try:
-        uem[(1, 2)] = 2  # This should raise a TypeError
-    except TypeError as e:
-        print(e)
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from stl_task import AbstractPolytopicPredicate, regular_2D_polytope, TimeInterval, AlwaysOperator,StlTask
+    import polytope as pc
+    
+    # create some edges
+    communicating_edges = [(1,2),(2,4),(1,3),(3,10),(10,5),(1,8),(8,9),(1,6),(6,7)]
+    broken_edges        = [(1,9),(1,7),(1,4),(1,5)]
+    
+    A,b  =  regular_2D_polytope(5,1)
+    
+    
+    G = create_graph_from_edges(communicating_edges+broken_edges)
+    G = break_communication_edge(G,broken_edges)
+    
+    # add some random tasks 
+    task_edges = [(1,2),(1,3),(1,6),(1,8)]
+    
+    for edge in task_edges :
+        P    =  CollaborativePredicate(pc.Polytope(A,b),edge[0],edge[1])
+        task = StlTask(AlwaysOperator(TimeInterval(0,10)),P)
+        G[edge[0]][edge[1]]["tasks_store"].add_tasks(task)
+        
+    
+    G_comm = extract_communication_graph(G)
+    G_task = extract_task_graph(G)
+    G_computing = get_computing_graph_from_communication_graph(G_comm)
+    
+    
+    
+    fig,axs = plt.subplots(1,4,figsize=(15,5)) 
+    
+    pos = nx.drawing.layout.spring_layout(G)
+    pos_comm = {i:p for i,p in pos.items() if i in G_comm.nodes}
+    pos_task = {i:p for i,p in pos.items() if i in G_task.nodes}
+    
+    print(G_comm.nodes)
+    print(G_computing.nodes)
+    pos_comp = {edge_to_int((i,j)): (pos_comm[i] + pos_comm[j])/2 for i,j in G_comm.edges}
+    print(pos_comp)
+    
+    nx.draw(G,with_labels=True,ax= axs[0],pos=pos)
+    nx.draw(G_comm,with_labels=True,ax= axs[1],pos=pos_comm)
+    nx.draw(G_task,with_labels=True,ax= axs[2],pos=pos_task)
+    nx.draw(G_computing,with_labels=True,ax= axs[3],pos=pos_comp)
+    
+    axs[0].set_title("Full Graph")
+    axs[1].set_title("Communication Graph")
+    axs[2].set_title("Task Graph")
+    axs[3].set_title("Computing Graph")
+    
+    plt.show()
+    
+    
