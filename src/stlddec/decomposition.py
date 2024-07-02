@@ -1,9 +1,9 @@
 import numpy as np
 import casadi as ca
 from itertools import chain,combinations
-from .stl_task import * 
-from .transport import Publisher
-from .graphs import *
+from stl_task import * 
+from transport import Publisher
+from graphs import *
 import networkx as nx 
 import matplotlib.pyplot as plt 
 import logging
@@ -274,10 +274,9 @@ class EdgeComputingAgent(Publisher) :
         
         super().__init__()
         
-        self._optimizer         : ca.Opti          = ca.Opti() # optimizer for the single agent.
-        self._edge              : int              = edge 
-        self._edge_id           : int              = edge_to_int(edge)
-        self._task_containers   : list[TaskOptiContainer] = [] # list of task containers.
+        self._optimizer         : ca.Opti          = ca.Opti()          # optimizer for the single agent.
+        self._edge_id           : int              = edge_to_int(edge)  # only save the edge as a unique integer
+        self._task_containers   : list[TaskOptiContainer] = []          # list of task containers.
         self._is_computing_edge : bool = False
        
         self._warm_start_solution : ca.OptiSol   = None
@@ -299,9 +298,6 @@ class EdgeComputingAgent(Publisher) :
         self.add_topic("new_consensus_variable")
         self.add_topic("new_lagrangian_variable")
         
-    @property
-    def edge(self):
-        return self._edge 
     @property
     def edge_id(self):
         return self._edge_id
@@ -475,7 +471,7 @@ class EdgeComputingAgent(Publisher) :
         self._is_computing_edge = bool(len(self._task_containers))
         
         if not self._is_computing_edge :
-            raise ValueError(f"Only computing agents can set up the optimization problem including their constraints and cost function. The current agent with assigned edge {self._edge} is not a computing agent.")
+            raise ValueError(f"Only computing agents can set up the optimization problem including their constraints and cost function. The current agent with assigned edge {self._edge_id} is not a computing agent.")
         
         if self._is_initialized_for_optimization :
             raise NotImplementedError("The optimization problem was already set up. You can only set up the optimization problem once at the moment.")
@@ -511,7 +507,7 @@ class EdgeComputingAgent(Publisher) :
         
         
         print("-----------------------------------")
-        print(f"Computing edge                     : {self._edge}")
+        print(f"Computing edge                     : {self._edge_id}")
         print(f"Number of overloading_constraints  : {len(overloading_constraints)}")
         print(f"Number of shared constraints       : {len(shared_path_constraint )}")
         print(f"Number of variables                : {len(self.optimizer.nx)}")
@@ -540,7 +536,7 @@ class EdgeComputingAgent(Publisher) :
             sol : ca.OptiSol = self._optimizer.solve() # the end 
         except  Exception as e: # work on python 3.x
             print("******************************************************************************")
-            logging.error(f'The optimization for agent {self._edge } failed with output: %s', e)
+            logging.error(f'The optimization for agent {self._edge_id } failed with output: %s', e)
             print("******************************************************************************")
             print("The latest value for the variables was the following : ")
             print("penalty                 :",self._optimizer.debug.value(self._penalty))
@@ -552,7 +548,7 @@ class EdgeComputingAgent(Publisher) :
         
         if print_result :
             print("--------------------------------------------------------")
-            print(f"Agent {self._edge } SOLUTION")
+            print(f"Agent {self._edge_id } SOLUTION")
             print("--------------------------------------------------------")
             for task_container in self._task_containers :
                 if task_container.task.is_parametric :
@@ -633,13 +629,13 @@ class EdgeComputingAgent(Publisher) :
                         callback( task_container._lagrangian_param_neighbours_from_self , self._edge_id , task_container.parent_task_id )
             
           
-def run_task_decomposition(edge_map: UndirectedEdgeMapping[GraphEdge]) :
+def run_task_decomposition(complete_graph:nx.Graph) :
     """Task decomposition pipeline"""
             
     # Create communication graph.
-    comm_graph          :nx.Graph = create_communication_graph_from_edges(edge_map=edge_map)
+    comm_graph          :nx.Graph = extract_communication_graph(G=complete_graph)
     # Create task graph.
-    original_task_graph :nx.Graph = create_task_graph_from_edges(edge_map = edge_map)
+    original_task_graph :nx.Graph = extract_task_graph(G=complete_graph)
     
     if not nx.is_connected(comm_graph) :
         raise ValueError("The communication graph is not connected. Please provide a connected communication graph")
@@ -647,7 +643,9 @@ def run_task_decomposition(edge_map: UndirectedEdgeMapping[GraphEdge]) :
         raise ValueError("The communication graph is not a acyclic. Please provide an acyclic communication graph")
     
     # Create computing graph (just used for plotting).
-    computing_graph :nx.Graph = create_computing_graph_from_communication_graph(comm_graph = comm_graph)
+    computing_graph :nx.Graph = extract_computing_graph_from_communication_graph(comm_graph = comm_graph)
+    
+    
     
     
     # Create the agents for decomposition
@@ -923,4 +921,7 @@ def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])->
     
     
 if __name__== "__main__" :
-    pass
+    # Test power set
+    print("Testing powerset")
+    print(list(powerset({1,2,3})))
+    

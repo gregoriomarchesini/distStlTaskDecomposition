@@ -168,7 +168,7 @@ def extract_communication_graph(graph:nx.Graph) :
     return comm_graph
     
     
-def get_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
+def extract_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
     
     computing_graph = nx.Graph()
     if not nx.is_tree(comm_graph) :
@@ -182,9 +182,13 @@ def get_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
         # Get all edges connected to node1 and node2
         edges_node1 = set(comm_graph.edges(edge[0]))
         edges_node2 = set(comm_graph.edges(edge[1]))
+        
+        print(edge)
+        print(edges_node1)
+        print(edges_node2)
     
         # Combine the edges and remove the original edge
-        adjacent_edges = list((edges_node1 | edges_node2) - {edge})
+        adjacent_edges = list((edges_node1 | edges_node2) - {edge, (edge[1],edge[0])})
         computing_edges = [ (edge_to_int(edge), edge_to_int(edge_neigh)) for edge_neigh in adjacent_edges]
         
         computing_graph.add_edges_from(computing_edges)
@@ -209,7 +213,7 @@ if __name__ == "__main__" :
     G = break_communication_edge(G,broken_edges)
     
     # add some random tasks 
-    task_edges = [(1,2),(1,3),(1,6),(1,8)]
+    task_edges = [(1,5),(1,7),(1,4),(1,9)]
     
     for edge in task_edges :
         P    =  CollaborativePredicate(pc.Polytope(A,b),edge[0],edge[1])
@@ -219,7 +223,7 @@ if __name__ == "__main__" :
     
     G_comm = extract_communication_graph(G)
     G_task = extract_task_graph(G)
-    G_computing = get_computing_graph_from_communication_graph(G_comm)
+    G_computing = extract_computing_graph_from_communication_graph(G_comm)
     
     
     
