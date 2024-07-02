@@ -6,6 +6,11 @@ import networkx as nx
 import stlddec.simulation as viz
 
 
+# create some edges
+communicating_edges = [(1,2),(2,4),(1,3),(3,10),(10,5),(1,8),(8,9),(1,6),(6,7)]
+broken_edges        = [(1,9),(1,7),(1,4),(1,5)]
+
+
 # create sinmple path graph
 edgeList = []
 for jj in range(4) :

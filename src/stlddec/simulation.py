@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from   stlddec.control import Agent
-from   stlddec.decomposition import AgentTaskDecomposition,GraphEdge
+from   stlddec.decomposition import EdgeComputingAgent,EdgeTaskManager
 from   stlddec.stl_task import StlTask
 import numpy as np
 from   tqdm import tqdm
