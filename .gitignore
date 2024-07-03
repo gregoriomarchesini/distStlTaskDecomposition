@@ -1,4 +1,7 @@
+# Do not include virtual environments
 .venv
 .vscode
 
+# do not include log files or pycache
 *.log
+__pycache__
