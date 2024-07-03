@@ -1,7 +1,31 @@
 import casadi as ca
-from typing import TypeAlias
+from   typing import TypeAlias
+import logging
+import sys
+
 
 UniqueIdentifier : TypeAlias = int #Identifier of a single agent in the system
+
+def get_logger(name:str, level=logging.INFO, output_file:str=None)-> logging.Logger:
+    
+    logging.basicConfig(level=level)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger    =  logging.getLogger(name)
+    
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(level)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    if output_file is not None:
+        file_handler = logging.FileHandler(output_file + ".log")
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    
+    
+    return logger
+    
 
 # Some support functions    
 def first_word_before_underscore(string: str) -> str:
@@ -84,3 +108,16 @@ def get_id_from_input_name(input_name: str) -> UniqueIdentifier:
         raise RuntimeError("The input name must be in the form 'state_i' where ''i'' is the agent ID")
     
     return ids
+
+
+
+
+if __name__ == "__main__":
+    
+    logger = get_logger("test",level=logging.DEBUG)
+    logger.error("This is an error")
+    logger.warning("This is a warning")
+    logger.info("This is an info")
+    logger.debug("This is a debug")
+    logger.critical("This is a critical")
+    # logger.exception("This is an exception")

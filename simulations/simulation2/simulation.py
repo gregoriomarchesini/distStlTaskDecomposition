@@ -12,30 +12,51 @@ import polytope as pc
 edges_in_the_network = [(1,2),(2,3),(3,1)]      
 G = gmod.create_graph_from_edges(edges_in_the_network)
 print(G.edges.values())
-for edge in G.edges :
-    
-    # Create aa regular polytope.
-    polytope     = pmod.regular_2D_polytope(5,4)
-    
-    # Create a predicate!
-    predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
-                                              center=np.array([0,0]),
-                                              source_agent_id=edge[0],
-                                              target_agent_id=edge[1])
-    # Set a temporal operator.
-    t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
-    
-    # Create a task.
-    task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
-    
-    # Add the task to the edge.
-    G[edge[0]][edge[1]][gmod.MANAGER].add_tasks(task)
-    
 
+# -------------- Setting the tasks -----------------------
+# EDGE 12
+# Create aa regular polytope.
+polytope     = pmod.regular_2D_polytope(5,4)
+    
+# Create a predicate!
+predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
+                                           center=np.array([5,-5]),
+                                           source_agent_id=1,
+                                           target_agent_id=2)
+# Set a temporal operator.
+t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
+    
+# Create a task.
+task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
+    
+# Add the task to the edge.
+G[1][2][gmod.MANAGER].add_tasks(task)
+
+# EDGE 32
+# Create aa regular polytope.
+polytope     = pmod.regular_2D_polytope(5,4)
+    
+# Create a predicate!
+predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
+                                           center=np.array([0,0]),
+                                           source_agent_id=3,
+                                           target_agent_id=2)
+# Set a temporal operator.
+t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
+    
+# Create a task.
+task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
+    
+# Add the task to the edge.
+G[3][2][gmod.MANAGER].add_tasks(task)
+    
+# -------------- Disconnect the communication graph -----------------------
+    
 # Now break some of the edges.
-G  = gmod.break_communication_edge(G,[(1,3)])
+G  = gmod.break_communication_edge(G,[(2,3)])
 
-dmod.run_task_decomposition(complete_graph=G)
+# -------------- Run The Decomposition -----------------------
+dmod.run_task_decomposition(complete_graph=G, logger_file="ciao")
 
 
 

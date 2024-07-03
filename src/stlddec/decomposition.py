@@ -8,6 +8,7 @@ from typing import Iterable
 from stlddec.stl_task import * 
 from stlddec.transport import Publisher
 from stlddec.graphs import *
+from stlddec.utils import *
 
 
 def edge_set_from_path(path:list[int],isCycle:bool=False) -> list[(int,int)] :
@@ -165,7 +166,7 @@ class TaskOptiContainer :
         self._is_initialized          = True
 
     
-    def compute_consensus_average_parameter(self,) -> np.ndarray :
+    def compute_consensus_average_parameter(self) -> np.ndarray :
         """computes sum_{j} \lambda_{ij} - \lambda_{ji}  
         
         Args: 
@@ -249,18 +250,14 @@ def get_inclusion_contraint(zeta:ca.MX, task_container:TaskOptiContainer,source:
         eta = np.vstack((task_container.task.predicate.center,np.array([1])))
     else :
         eta = task_container.eta_var
-        
-    
-    
-    
-    
     
     # Check the target source pairs as the inclusion relation needs to respect the direction of the task.
     if (source == task_container.task.predicate.source_agent) and (target == task_container.task.predicate.target_agent) :
         A = task_container.task.predicate.A
         b = task_container.task.predicate.b[:,np.newaxis] # makes it a column
         A_z = np.hstack((A,b)) 
-        constraints = A@zeta - A_z@eta <= 0 
+        
+        constraints = A@zeta - A_z@eta <= ca.DM.zeros((A.shape[0],1)) 
         
     else :
         A = -task_container.task.predicate.A   
@@ -268,10 +265,10 @@ def get_inclusion_contraint(zeta:ca.MX, task_container:TaskOptiContainer,source:
         A_z = np.hstack((A,b)) 
         
         # The flip matrix reverts the sign of the center variable and lets the scale factor with the same sign.
-        flip_mat = -np.eye(task_container.task.state_space_dimension)
+        flip_mat = -ca.DM.eye(task_container.task.state_space_dimension+1)
         flip_mat[-1,-1] = 1
         
-        constraints = A@zeta - A_z@flip_mat@eta <= 0 
+        constraints = A@zeta - A_z@flip_mat@eta <= ca.DM.zeros((A.shape[0],1)) 
 
     return constraints
 
@@ -280,11 +277,13 @@ def any_parametric( iterable:Iterable[TaskOptiContainer] ) -> bool :
     
     return any([task_container.task.is_parametric for task_container in iterable])
 
+
+
 class EdgeComputingAgent(Publisher) :
     """
        Edge Agent Task Decomposition
     """
-    def __init__(self,edge_id : int) -> None:
+    def __init__(self,edge_id : int, logging_file: str= None,logger_level: int = logging.INFO) -> None:
         """
         Args:
             agentID (int): Id of the agent
@@ -315,7 +314,7 @@ class EdgeComputingAgent(Publisher) :
         
         self.add_topic("new_consensus_variable")
         self.add_topic("new_lagrangian_variable")
-        
+        self._logger = get_logger("Agent-" + str(self.edge_id),output_file=logging_file,level = logger_level)
     @property
     def edge_id(self):
         return self._edge_id
@@ -340,19 +339,20 @@ class EdgeComputingAgent(Publisher) :
  
         # Checks.
         if not isinstance(task_container.task.predicate,CollaborativePredicate) :
-            raise ValueError("Only collaborative tasks are allowed as these ar the only ones that should be decomposed.")
+            message = "Only collaborative tasks are allowed as these ar the only ones that should be decomposed."
+            self._logger.error(message)
+            raise RuntimeError(message)
         
-        print("inside :",task_container.has_parent_task)
         if task_container.task.is_parametric and (not task_container.has_parent_task) :
-            raise ValueError("The task container provided contains a parametric task but does not have an assigned parent task. You must set the parent task together with the decomposition path using the method set_parent_task_and_decomposition_path")
+            message = "The task container provided contains a parametric task but does not have an assigned parent task. You must set the parent task together with the decomposition path using the method set_parent_task_and_decomposition_path"
+            self._logger.error(message)
+            raise RuntimeError(message)
         
         task_edge_id = edge_to_int((task_container.task.predicate.source_agent,task_container.task.predicate.target_agent))
         if task_edge_id != self._edge_id :
-            raise ValueError(f"The task container with collaborative task over the edge {(task_edge_id)} does not belong to the edge" + str(self._edge_id))
-        
-        # Create the optimization variables for the solver.
-        if task_container.task.is_parametric:
-            task_container.set_optimization_variables(self._optimizer)
+            message = f"The task container with collaborative task over the edge {(task_edge_id)} does not belong to this the edge"
+            self._logger.error(message)
+            raise RuntimeError(message)
             
         self._task_containers.append(task_container)
             
@@ -369,13 +369,13 @@ class EdgeComputingAgent(Publisher) :
             if container.task.is_parametric :
                 task                 = container.task                          # extract task
                 num_computing_agents = container.length_decomposition_path -1  # Number of agents sharing the computation for this constraint
-                
+                print("Number of computing agents: ",num_computing_agents)
                 # Compute constraints.
                 M,Z  = get_M_and_Z_matrices_from_inclusion(P_including=container.parent_task, P_included=task) # get the matrices for the inclusion constraint
                 Z    = Z/num_computing_agents # scale the Z matrix by the number of computing agents 
-                
-                penalty_vec  = np.ones((container.average_consensus_param.size1(),1)) * self._penalty 
-                zero_vec     = np.zeros((container.average_consensus_param.size1(),1))
+       
+                penalty_vec  = ca.DM.ones((container.average_consensus_param.size1(),1)) * self._penalty 
+                zero_vec     = ca.DM.zeros((container.average_consensus_param.size1(),1))
             
                 constraint   = (M@container.eta_var - Z)  - penalty_vec  + container.average_consensus_param <= zero_vec  # set the constraint
                 constraints_list = [constraint]
@@ -506,11 +506,14 @@ class EdgeComputingAgent(Publisher) :
         
         
         if self._is_initialized_for_optimization :
-            raise NotImplementedError("The optimization problem was already set up. You can only set up the optimization problem once at the moment.")
+            message = "The optimization problem was already set up. You can only set up the optimization problem once at the moment."
+            self._logger.error(message)
+            raise RuntimeError(message)
         
         if len(self._task_containers) == 0 :
             self._is_computing_edge = False
-            raise Warning("The agent does not have any tasks to decompose. The optimization problem will not be setup and solved.")
+            message = "The agent does not have any tasks to decompose. The optimization problem will not be setup and solved."
+            self._logger.warning(message)
 
         
         self._num_iterations     = int(num_iterations) # number of iterations.
@@ -523,7 +526,8 @@ class EdgeComputingAgent(Publisher) :
                 task_container.set_optimization_variables(self._optimizer) # creates scale,center and consensus variables for each task.
         
                 # Set the scale factor positive in constraint
-                self._optimizer.subject_to(task_container.scale_var >0)
+                epsilon = 1e-3
+                self._optimizer.subject_to(task_container.scale_var >= epsilon)
                 self._optimizer.set_initial(task_container.scale_var,0.2) # set an initial guess value
                 cost += -task_container.scale_var
             
@@ -534,13 +538,15 @@ class EdgeComputingAgent(Publisher) :
         shared_path_constraint   = self._compute_shared_constraints()
         
         if len(overloading_constraints) != 0:
-            self._optimizer.subject_to(ca.vertcat(*overloading_constraints) ) # it can be that no private constraints are present
+            for constraint in overloading_constraints :
+                self._optimizer.subject_to(constraint)
         if len(shared_path_constraint) !=0 :
-            self._optimizer.subject_to(ca.vertcat(*shared_path_constraint))
+            for constraint in shared_path_constraint :
+                self._optimizer.subject_to(constraint)
         if len(overloading_constraints) == 0 and len(shared_path_constraint) == 0 :
             self._is_computing_edge = False
-            raise Warning("The agent does not have any parametric task requiring decomposition.")
-        
+            self._logger.warning("The agent does not have any parametric task requiring decomposition.")
+            
         if self._is_computing_edge :
             print("-----------------------------------")
             print(f"Computing edge                          : {self._edge_id}")
@@ -560,6 +566,10 @@ class EdgeComputingAgent(Publisher) :
         
     def solve_local_problem(self,print_result:bool=False) -> None :
         
+        if not self._is_computing_edge :
+            self._current_iteration += 1
+            return 
+            
         # Update the consensus parameters.
         for task_container in self._task_containers :
             if task_container.task.is_parametric :
@@ -568,19 +578,21 @@ class EdgeComputingAgent(Publisher) :
                 
         if self._warm_start_solution != None :
             self._optimizer.set_initial(self._warm_start_solution.value_variables())
-        
+         
+
         try :
             sol : ca.OptiSol = self._optimizer.solve() # the end 
-        except  Exception as e: # work on python 3.x
-            print("******************************************************************************")
-            logging.error(f'The optimization for agent {self._edge_id } failed with output: %s', e)
-            print("******************************************************************************")
-            print("The latest value for the variables was the following : ")
-            print("penalty                 :",self._optimizer.debug.value(self._penalty))
-            print("cost                    :",self._optimizer.debug.value(self._cost))
-            print("******************************************************************************")
-            
-            exit()
+            if sol.stats()['success'] :
+                print("******************************************************************************")
+                print(f'The optimization for agent {self._edge_id } was successful with output: %s', sol.value(self._cost))
+                print("******************************************************************************")
+            else :
+                print("******************************************************************************")
+                print(f'The optimization for agent {self._edge_id } failed with output: %s', sol.value(self._cost))
+                print("******************************************************************************")
+        except  Exception as e:
+            self._logger.error(f"An error occured while solving the optimization problem for agent {self._edge_id}")
+            raise e
       
         
         if print_result :
@@ -592,6 +604,9 @@ class EdgeComputingAgent(Publisher) :
                     print("Center and Scale")
                     print(self._optimizer.value(task_container.center_var))
                     print(self._optimizer.value(task_container.scale_var))
+                    for zeta in self._zeta_variables :
+                        print("Zeta")
+                        print(self._optimizer.value(zeta))
             
             print("penalty")
             print(self._optimizer.value(self._penalty))
@@ -599,7 +614,6 @@ class EdgeComputingAgent(Publisher) :
         
         self._penalty_values.append(self._optimizer.value(self._penalty))
         self._cost_values.append(self._optimizer.value(self._cost))
-        
         self._warm_start_solution = sol
         
         # Update lagrangian coefficients
@@ -629,6 +643,7 @@ class EdgeComputingAgent(Publisher) :
     # Callbacks and notifications.
     def update_consensus_variable_from_edge_neighbour_callback(self,consensus_variables_map_from_neighbour:dict[int,np.ndarray],neighbour_edge_id:int, parent_task_id:int) -> None :
         """Update the task of the agent"""
+        self._logger.info(f"Receiving consensus variable from neighbour edge {neighbour_edge_id} for parent task {parent_task_id}")
         for task_container in self._task_containers :
             if task_container.task.is_parametric :
                 if task_container.parent_task_id == parent_task_id : # you have a task connected to the same parent id.
@@ -636,29 +651,30 @@ class EdgeComputingAgent(Publisher) :
                     # From the variables of the neighbur extract the one correspoding to your edge.
                     consensus_variable = consensus_variables_map_from_neighbour[self._edge_id]
                     # Update the consensus variables as received from the neighbour.
-                    task_container.update_consensus_variable_from_neighbours(edge = neighbour_edge_id , consensus_variable= consensus_variable)
+                    task_container.update_consensus_variable_from_neighbours(neighbour_edge_id=  neighbour_edge_id , consensus_variable= consensus_variable)
                     break
         
     def update_lagrangian_variable_from_edge_neighbour_callback(self,lagrangian_variable_from_neighbour:np.ndarray,neighbour_edge_id:int,parent_task_id:int) -> None :
         """Update the task of the agent"""
+        self._logger.info(f"Receiving lagrangian variable from neighbour edge {neighbour_edge_id} for parent task {parent_task_id}")
         for task_container in self._task_containers :
             if task_container.task.is_parametric :
                 if task_container.parent_task_id == parent_task_id :
-                    task_container.update_lagrangian_variable_from_neighbours(edge = neighbour_edge_id,lagrangian_variable= lagrangian_variable_from_neighbour)
+                    task_container.update_lagrangian_variable_from_neighbours(neighbour_edge_id = neighbour_edge_id,lagrangian_variable= lagrangian_variable_from_neighbour)
                     break
         
     
     def notify(self,event_type:str):
         if event_type == "new_consensus_variable" :
+            self._logger.info(f"Notifying neighbours about the new consensus variable")
             for task_container in self._task_containers :
                 if task_container.task.is_parametric :
-                    
                     for callback in self._subscribers[event_type] :
                         callback( task_container._consensus_param_neighbours_from_self , self._edge_id , task_container.parent_task_id )
                     
                     
         elif event_type == "new_lagrangian_variable" :
-            
+            self._logger.info(f"Notifying neighbours about the new lagrangian variable")
             for task_container in self._task_containers :
                 if task_container.task.is_parametric :
                     
@@ -666,7 +682,7 @@ class EdgeComputingAgent(Publisher) :
                         callback( task_container._lagrangian_param_neighbours_from_self , self._edge_id , task_container.parent_task_id )
             
           
-def run_task_decomposition(complete_graph:nx.Graph) :
+def run_task_decomposition(complete_graph:nx.Graph,logger_file:str = None,logger_level:int = logging.INFO) :
     """Task decomposition pipeline"""
             
     # Create communication graph.
@@ -684,7 +700,7 @@ def run_task_decomposition(complete_graph:nx.Graph) :
     
     for node in computing_graph.nodes :
         # node is equal to edge id. ex : (4,1) -> 41
-        computing_graph.nodes[node][AGENT] = EdgeComputingAgent(edge_id = node)
+        computing_graph.nodes[node][AGENT] = EdgeComputingAgent(edge_id = node,logging_file = logger_file ,logger_level = logger_level)
     
 
     path_list : list[int] =  []
@@ -726,42 +742,46 @@ def run_task_decomposition(complete_graph:nx.Graph) :
                     computing_graph.nodes[edge_to_int((source_node,target_node))][AGENT].add_task_container(task_container = task_container)
         
     
-    number_of_optimization_iterations = 1000
+    number_of_optimization_iterations = 300
     # after all constraints are set, initialise source nodes as computing agents for the dges that were used for the optimization
     for node in computing_graph.nodes :
         computing_graph.nodes[node][AGENT].setup_optimizer(num_iterations = number_of_optimization_iterations)
     
-    exit()
+    
     # Set the callback connections.
     computing_agents_couples = list(combinations(computing_graph.nodes,2))
-    for agent_i,agent_j in computing_agents_couples:
+    for edge_i,edge_j in computing_agents_couples:
         
-        if agent_j.edge_id in computing_graph.neighbors(agent_i.edge_id) :
+        if edge_j in computing_graph.neighbors(edge_i) :
+            
+            agent_i = computing_graph.nodes[edge_i][AGENT]
+            agent_j = computing_graph.nodes[edge_j][AGENT]
+            
             agent_i.register("new_consensus_variable",agent_j.update_consensus_variable_from_edge_neighbour_callback)
             agent_i.register("new_lagrangian_variable",agent_j.update_lagrangian_variable_from_edge_neighbour_callback)
             
             agent_j.register("new_consensus_variable",agent_i.update_consensus_variable_from_edge_neighbour_callback)
             agent_j.register("new_lagrangian_variable",agent_i.update_lagrangian_variable_from_edge_neighbour_callback)
             
-             
+
     # Solution loop.
     for jj in range(number_of_optimization_iterations ) :
         
         # Everyone shares the current consensus variables.
         for node in computing_graph.nodes :
-            computing_graph.nodes[AGENT].notify("new_consensus_variable")
+            computing_graph.nodes[node][AGENT].notify("new_consensus_variable")
             
         # Everyone solves the local problem and updates the lagrangian variables.
         for node in computing_graph.nodes :
-            computing_graph.nodes[AGENT].solve_local_problem(  print_result=False )
+            computing_graph.nodes[node][AGENT].solve_local_problem(  print_result=True )
             
         # Everyone updates the value of the consensus variables.
         for node in computing_graph.nodes :
-            computing_graph.nodes[AGENT].notify("new_lagrangian_variable")
+            computing_graph.nodes[node][AGENT].notify("new_lagrangian_variable")
         
         # Everyone updates the consensus variables using the lagrangian coefficients updates.
         for node in computing_graph.nodes :
-            computing_graph.nodes[AGENT].step_consensus_variables_with_currently_available_lagrangian_coefficients()
+            computing_graph.nodes[node][AGENT].step_consensus_variables_with_currently_available_lagrangian_coefficients()
         
         
         
