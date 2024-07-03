@@ -1,5 +1,5 @@
-from .decomposition_module import *
-from .predicate_builder_module import *
+from .decomposition import *
+from .stl_task import *
 import casadi as ca
 
 class STLController():
@@ -222,8 +222,8 @@ class STLController():
             if timeSatisfaction<=self._initializationTime :
                 print(f"fomula with id:{id(task)} cannot be satisfied as the time of satisfaction is passed the initalization time. Initalization time is {self._initializationTime} and given satisfaction time is {timeSatisfaction} ")
                 print("the tasks has the following specifics :")
-                print(f"time interval : {task.timeInterval.a,task.timeInterval.b}")
-                print(f"temporal operator : {task.temporalOperator}")
+                print(f"time interval : {task.time_interval.a,task.time_interval.b}")
+                print(f"temporal operator : {task.temporal_operator}")
                 raise RuntimeError("Unsatisfiable task")
         
             # timeSatisfaction = np.max([0,timeSatisfaction - timeScatterFactor]) # scattering the time of the barriers for staisfaction. Helps break symmetris

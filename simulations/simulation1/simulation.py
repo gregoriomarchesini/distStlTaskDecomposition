@@ -1,9 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import stlddec.predicate_builder_module as pmod
-import stlddec.decomposition_module as dmod
+import stlddec.stl_task as pmod
+import stlddec.decomposition as dmod
 import networkx as nx
-import stlddec.visualization_module as viz
+import stlddec.simulation as viz
+
+
+# create some edges
+communicating_edges = [(1,2),(2,4),(1,3),(3,10),(10,5),(1,8),(8,9),(1,6),(6,7)]
+broken_edges        = [(1,9),(1,7),(1,4),(1,5)]
 
 
 # create sinmple path graph

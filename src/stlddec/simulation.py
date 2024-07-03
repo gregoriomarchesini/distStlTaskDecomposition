@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
-from   stlddec.control_module import Agent
-from   stlddec.decomposition_module import AgentTaskDecomposition,GraphEdge
-from   stlddec.predicate_builder_module import StlTask
+from   stlddec.control import Agent
+from   stlddec.decomposition import EdgeComputingAgent,EdgeTaskManager
+from   stlddec.stl_task import StlTask
 import numpy as np
 from   tqdm import tqdm
 from   networkx import Graph
@@ -209,4 +209,89 @@ def simulateAgents(taskGraph :Graph,startTime:float,endTime:float,initialAgentsS
     
     
     return agentsTrajectory
+
+
+
+
+########################################################################################################################### 
+# Visualization
+###########################################################################################################################
+
+
+
+def visualizeGraphs(communicationGraph:nx.Graph, initialTaskGraph:nx.Graph, finalTaskGraph:nx.Graph) :
     
+    nodes = communicationGraph.nodes(data=True)
+    xx = [node[1]["pos"][0] for node in nodes]
+    yy = [node[1]["pos"][1] for node in nodes]
+    xxmin,xxmax= min(xx)*1.6,max(xx)*1.6
+    yymin,yymax = min(yy)*1.6,max(yy)*1.6
+
+    nodes = communicationGraph.nodes(data=True)
+    
+    # define figure object
+    fig, ax = plt.subplots() 
+    ax.set_xlim([-20,20])
+    ax.set_ylim([-20,20])
+
+
+    # Define graphs
+    fig, ax = plt.subplots(1,3) 
+
+    # Communicatino Graph
+    ax[0].set_xlim([xxmin,xxmax])
+    ax[0].set_ylim([yymin,yymax])
+    # # Drawing of the network
+    edgeLabels = { (i,j):"link" for  i,j in communicationGraph.edges}    
+    nx.draw_networkx(communicationGraph,{node:nodeDict["pos"] for node,nodeDict in nodes},ax=ax[0])
+
+    nx.draw_networkx_edge_labels(
+        communicationGraph,
+        {node:nodeDict["pos"] for node,nodeDict in nodes},
+        edge_labels = edgeLabels,
+        font_color='black',
+        ax=ax[0]
+    )
+
+    ax[0].set_title("communication graph")
+
+
+    # final Task Graph
+    ax[1].set_xlim([-20,20])
+    ax[1].set_ylim([-20,20])
+    # # Drawing of the network
+    edgeLabels = { (i,j):"Task" for  i,j,attr in finalTaskGraph.edges(data=True) if attr["edgeObj"].hasSpecifications}    
+    taskPlot = nx.draw_networkx(finalTaskGraph,{node:nodeDict["pos"] for node,nodeDict in nodes},ax=ax[1])
+
+    nx.draw_networkx_edge_labels(
+        finalTaskGraph,
+        {node:nodeDict["pos"] for node,nodeDict in nodes},
+        edge_labels = edgeLabels,
+        font_color='black',
+        ax=ax[1]
+    )
+
+    ax[1].set_title("final Task Graph")
+    
+    ax[1].set_xlim([xxmin,xxmax])
+    ax[1].set_ylim([yymin,yymax])
+    
+    
+    # Initial Task Graph
+    ax[2].set_xlim([-20,20])
+    ax[2].set_ylim([-20,20])
+    # # Drawing of the network
+    edgeLabels = { (i,j):"Task" for  i,j,attr in initialTaskGraph.edges(data=True) if attr["edgeObj"].hasSpecifications}    
+    taskPlot = nx.draw_networkx(initialTaskGraph,{node:nodeDict["pos"] for node,nodeDict in nodes},ax=ax[2])
+
+    nx.draw_networkx_edge_labels(
+        initialTaskGraph,
+        {node:nodeDict["pos"] for node,nodeDict in nodes},
+        edge_labels = edgeLabels,
+        font_color='black',
+        ax=ax[2]
+    )
+
+    ax[2].set_title("Initial Task Graph")
+    ax[2].set_xlim([xxmin,xxmax])
+    ax[2].set_ylim([yymin,yymax])
