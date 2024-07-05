@@ -173,7 +173,9 @@ class AlwaysOperator(TemporalOperator):
     @property
     def time_of_remotion(self) -> float:
         return self._time_of_remotion
-
+    
+    def __str__(self):
+        return f"G_[{self._time_interval.a}, {self._time_interval.b}]"
     
 class EventuallyOperator(TemporalOperator):
     def __init__(self,time_interval:TimeInterval,time_of_satisfaction:float=None) -> None:
@@ -203,7 +205,9 @@ class EventuallyOperator(TemporalOperator):
     @property
     def time_of_remotion(self) -> float:
         return self._time_of_remotion
-
+    
+    def __str__(self):
+        return f"F_[{self._time_interval.a}, {self._time_interval.b}]"
 
 
 #!TODO: Still under development. Do not use for now.
@@ -396,6 +400,7 @@ class CollaborativePredicate(AbstractPolytopicPredicate):
             self._center = - self._center
         # change matrix A
         self._polytope = pc.Polytope(-self._polytope.A,self._polytope.b)
+    
         
 
 class StlTask:

@@ -7,6 +7,11 @@ import stlddec.decomposition as dmod
 import polytope as pc
 
 
+#! Fix example and do more complicated examples:
+#! 1. Add more agents
+#! 2. check what happens to the contraint when you have a lot of overloading of agents
+#! 3. check if the cost 1/scale is better than the linear cost (it should be)
+#! 4. check if scaling of the variables help even if I doubt since the center variables do not have crazy high values.
 
 # List all the edges in the network with communication
 edges_in_the_network = [(1,2),(2,3),(3,1)]      
@@ -50,7 +55,7 @@ task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
 # Add the task to the edge.
 G[3][2][gmod.MANAGER].add_tasks(task)
     
-# -------------- Disconnect the communication graph -----------------------
+# -------------- Disconnect the communication graph ---------------------
     
 # Now break some of the edges.
 G  = gmod.break_communication_edge(G,[(2,3)])
@@ -73,5 +78,5 @@ dmod.run_task_decomposition(complete_graph=G, logger_file="ciao")
 # ax[2].set_title("Original Task Graph")
 
 
-# plt.show()
+plt.show()
 

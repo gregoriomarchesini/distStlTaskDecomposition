@@ -16,12 +16,11 @@ def edge_to_int(t:tuple[int,int]) -> int :
 
 class EdgeTaskManager() :
     
-    def __init__(self, edge_i :int,edge_j:int, is_communicating :bool= True,weight:float=1) -> None:
+    def __init__(self, edge_i :int,edge_j:int,weight:float=1) -> None:
      
       if weight<=0 : # only accept positive weights
           raise("Edge weight must be positive")
       
-      self._is_communicating            = is_communicating
       self._is_involved_in_optimization = 0
       
       if not(self._is_communicating) :
@@ -39,16 +38,6 @@ class EdgeTaskManager() :
     @property
     def tasks_list(self) :
         return self._tasks_list
-    
-    @property
-    def is_communicating(self) :
-      return self._is_communicating 
-    
-    @is_communicating.setter
-    def is_communicating(self,value):
-        if not isinstance(value,bool) :
-            raise ValueError("The value must be a boolean for the property is_communicating")
-        self._is_communicating = value
     
     @property
     def edge(self) :
@@ -120,53 +109,66 @@ class EdgeTaskManager() :
         self._is_involved_in_optimization = True
         
 
-def create_graph_from_edges(edges : list[tuple[int,int]]) :
+
+def create_task_graph_from_edges(edges : list[tuple[int,int]]) :
     """ Creates a communication graph from a list of edges. The edges are assumed to be undirected and all communicating"""
     
     G = nx.Graph()
     try :
         for edge in edges :
             G.add_edge(edge[0],edge[1])
-            G[edge[0]][edge[1]][MANAGER] = EdgeTaskManager(edge_i =edge[0],edge_j = edge[1],is_communicating=True)
-    except :
-        raise ValueError("The edges must be a list of tuples. EX: [(1,2), (2,3), ...]")
+            G[edge[0]][edge[1]][MANAGER] = EdgeTaskManager(edge_i =edge[0],edge_j = edge[1])
+    except Exception as e:
+        raise ValueError("The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The following exception was raised : \n {e}")
     
     return G
 
-def break_communication_edge(G:nx.Graph,edges:list[tuple[int,int]]) :
+def create_communication_graph_from_edges(edges : list[tuple[int,int]],add_task_manager:bool = False) :
+    """ Creates a communication graph from a list of edges. The edges are assumed to be undirected and all communicating"""
+    
+    G = nx.Graph()
+    try :
+        for edge in edges :
+            G.add_edge(edge[0],edge[1])
+            G[edge[0]][edge[1]][MANAGER] = EdgeTaskManager(edge_i =edge[0],edge_j = edge[1])
+    except Exception as e:
+        raise ValueError("The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The following exception was raised : \n {e}")
+    
+    return G
+
+
+def normalize_graphs(comm_graph:nx.Graph, task_graph:nx.Graph) :
+    """ Makes sure that both graphs have the number of edges"""
+    nodes = set(comm_graph.nodes).union(set(task_graph.nodes))
+    for node in nodes :
+        if node not in comm_graph.nodes :
+            comm_graph.add_node(node)
+        if node not in task_graph.nodes :
+            task_graph.add_node(node)
+
+
+def create_task_graph_by_breaking_the_edges(communication_graph:nx.Graph,broken_edges:list[tuple[int,int]]) :
     """ Breaks the communication between the given edges. The edges are assumed to be undirected. The graph is not copied by the functions so
         G = break_communication_edge(G,edges) will modify the graph G as well as simply calling break_communication_edge(G,edges) will.
     """
+    
+    task_graph = nx.Graph()
+    task_graph.add_nodes_from(communication_graph.nodes)
+    
+    
+    
     try : 
-        for edge in edges :
-            if G.has_edge(edge[0],edge[1]) :
-                G[edge[0]][edge[1]][MANAGER].is_communicating = False
+        for edge in communication_graph.edges :
+            if not (edge in broken_edges) :
+                task_graph.add_edge(edge[0],edge[1])
+                task_graph[edge[0]][edge[1]][MANAGER] = EdgeTaskManager(edge_i =edge[0],edge_j = edge[1])
+
     except Exception as e:
         raise ValueError(f"The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The exception rised was the following : \n {e}")
 
-    return G
-
-def extract_task_only_graph(graph:nx.Graph) :
-    """ Builds a undirected graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
-    
-    task_graph = nx.Graph()
-    for edge in graph.edges :
-        if graph[edge[0]][edge[1]][MANAGER].has_specifications :
-            task_graph.add_edge(edge[0],edge[1])
-            task_graph[edge[0]][edge[1]][MANAGER] = deepcopy(graph[edge[0]][edge[1]][MANAGER])
     return task_graph
 
-def extract_communication_only_graph(graph:nx.Graph) :
-    """ Builds a directed graph to be used for the decomposition based on the edges. The given edges are inserted in both directions for an edge"""
-    
-    comm_graph = nx.Graph()
-    for edge in graph.edges :
-        if graph[edge[0]][edge[1]][MANAGER].is_communicating :
-            comm_graph.add_edge(edge[0],edge[1])
-            comm_graph[edge[0]][edge[1]][MANAGER] = deepcopy(graph[edge[0]][edge[1]][MANAGER])
-    return comm_graph
-    
-    
+
 def extract_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
     
     computing_graph = nx.Graph()
@@ -174,7 +176,6 @@ def extract_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
         raise ValueError("The communication graph must be acyclic to obtain a valid computation graph")
     
     for edge in comm_graph.edges :
-        
         computing_graph.add_node(edge_to_int(edge))
     
     for edge in comm_graph.edges :    
@@ -191,4 +192,9 @@ def extract_computing_graph_from_communication_graph(comm_graph:nx.Graph) :
     return computing_graph
     
     
+def clean_task_graph(task_graph:nx.Graph) :
+    """ Removes all the tasks from the graph"""
     
+    for edge in task_graph.edges :
+        if not task_graph[edge[0]][edge[1]][MANAGER].has_specifications :
+            task_graph.remove_edge(edge[0],edge[1])

@@ -4,6 +4,7 @@ from   itertools import chain,combinations
 import networkx as nx 
 import logging
 from typing import Iterable
+import matplotlib.pyplot as plt
 
 from stlddec.stl_task import * 
 from stlddec.transport import Publisher
@@ -315,6 +316,7 @@ class EdgeComputingAgent(Publisher) :
         self.add_topic("new_consensus_variable")
         self.add_topic("new_lagrangian_variable")
         self._logger = get_logger("Agent-" + str(self.edge_id),output_file=logging_file,level = logger_level)
+    
     @property
     def edge_id(self):
         return self._edge_id
@@ -680,54 +682,87 @@ class EdgeComputingAgent(Publisher) :
                     
                     for callback in self._subscribers[event_type] :
                         callback( task_container._lagrangian_param_neighbours_from_self , self._edge_id , task_container.parent_task_id )
+                        
+                        
+                        
+    def deparametrize_container(self,task_container : TaskOptiContainer) -> StlTask | None :
+        
+        if task_container.task.is_parametric :
+            try :
+                center = np.asanyarray(self._optimizer.value(task_container.center_var))
+                scale  = float(self._optimizer.value(task_container.scale_var))
+            except Exception as e :
+                message = f"Error trying to retrieve the optimization variables for task {task_container.task.task_id}. Probably the optimization was not run yet. Error: {e}"
+                self._logger.error(message)
+                raise RuntimeError(message)
             
+            A = task_container.task.predicate.A
+            b = task_container.task.predicate.b*scale
+            polytope_0    =  pc.Polytope(A = A, b = b)
+            new_predicate = CollaborativePredicate(polytope_0=polytope_0 , 
+                                                   center = center,
+                                                   source_agent = task_container.task.predicate.source_agent, 
+                                                   target_agent = task_container.task.predicate.target_agent)
+            new_task = StlTask(predicate = new_predicate, temporal_operator = task_container.task.temporal_operator)
+        else :
+            # if task is not parametric return the task as it is
+            new_task = task_container.task
+        return new_task
+        
+    def get_parameteric_container_with_parent_task(self,parent_task_id:int) -> TaskOptiContainer | None :
+        
+        for task_container in self._task_containers :
+            if task_container.task.is_parametric:
+                if task_container.parent_task_id == parent_task_id :
+                    return task_container
+        return None
           
-def run_task_decomposition(complete_graph:nx.Graph,logger_file:str = None,logger_level:int = logging.INFO) :
+def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logger_file:str = None,logger_level:int = logging.INFO) :
     """Task decomposition pipeline"""
             
-    # Create communication graph.
-    comm_graph          :nx.Graph = extract_communication_only_graph(graph=complete_graph)
-    if not nx.is_connected(comm_graph) :
+    # Check the communication graph.
+    if not nx.is_connected(communication_graph) :
         raise ValueError("The communication graph is not connected. Please provide a connected communication graph")
-    if not nx.is_tree(comm_graph) :
+    if not nx.is_tree(communication_graph) :
         raise ValueError("The communication graph is not a acyclic. Please provide an acyclic communication graph")
     
-    # Create task graph.
-    original_task_graph :nx.Graph = extract_task_only_graph(graph=complete_graph)
-    
+    original_task_graph :nx.Graph = clean_task_graph(task_graph) # remove edges that do not have tasks to keep the graph clean..
+    new_task_graph :nx.Graph = create_task_graph_from_edges(communication_graph.edges) # base the new task graph on the communication graph.
+
     # Create computing graph (just used for plotting).
-    computing_graph :nx.Graph = extract_computing_graph_from_communication_graph(comm_graph = comm_graph)
+    computing_graph :nx.Graph = extract_computing_graph_from_communication_graph(communication_graph= communication_graph)
     
     for node in computing_graph.nodes :
         # node is equal to edge id. ex : (4,1) -> 41
         computing_graph.nodes[node][AGENT] = EdgeComputingAgent(edge_id = node,logging_file = logger_file ,logger_level = logger_level)
-    
 
-    path_list : list[int] =  []
+    critical_task_to_path_mapping : dict[StlTask,list[int]] = {} # mapping of critical tasks to the path used to decompose them.
     
     # For each each edge check if there is a decomposition to be done.
     for edge in original_task_graph.edges : 
         
-        # if the edge is in the communication edges:
-        if edge in comm_graph.edges :
+        if edge in communication_graph.edges :
             task_list = original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
+            # add the tasks to the new task graph.
+            new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task_list)
+            
+            # Add tasks to the computing graph to go on with the decomposition.
             for task in task_list :
                 container = TaskOptiContainer(task = task)
                 computing_graph.nodes[edge_to_int((edge[1],edge[0]))][AGENT].add_task_container(task_container = container)
         
-        # if the edge isa critical edge
-        elif not edge in comm_graph.edges :  # this edge is inconsistent with the communication graph
+        # if the edge is a critical edge
+        elif not edge in communication_graph.edges :  # this edge is inconsistent with the communication graph
             
             # Retrive all the tasks on the edge because such tasks will be decomposed
             tasks_to_be_decomposed: list[StlTask] =  original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
             
-            path = nx.shortest_path(comm_graph,source = edge[0],target = edge[1]) # find shortest path connecting the two nodes.
-            path_list.append(path) # add path to the path list.
+            path = nx.shortest_path(communication_graph,source = edge[0],target = edge[1]) # find shortest path connecting the two nodes.
             edges_through_path = edge_set_from_path(path=path) # find edges along the path.
             
             for parent_task in tasks_to_be_decomposed : # add a new set of tasks for each edge along the path of the task to be decomposed
                 
-                
+                critical_task_to_path_mapping[parent_task] = path # map the critical task to the path used to decompose it.
                 if (parent_task.predicate.source_agent,parent_task.predicate.target_agent) != (path[0],path[-1]) : # case the direction is incorrect.
                     parent_task.flip() # flip the task such that all tasks have the same direction of the node.
                 
@@ -735,11 +770,13 @@ def run_task_decomposition(complete_graph:nx.Graph,logger_file:str = None,logger
                     
                     # Create parametric task along this edge and add it to the communication graph.
                     subtask = create_parametric_collaborative_task_from(task = parent_task , source_agent_id = source_node, target_agent_id = target_node ) 
-                    comm_graph[source_node][target_node][MANAGER].add_tasks(subtask) # add the task to the edge object.
+                    communication_graph[source_node][target_node][MANAGER].add_tasks(subtask) # add the task to the edge object.
                     # Create task container to be given to the computing agent corresponding to the edge.
                     task_container = TaskOptiContainer(task=subtask)
                     task_container.set_parent_task_and_decomposition_path(parent_task = parent_task,decomposition_path = path)
                     computing_graph.nodes[edge_to_int((source_node,target_node))][AGENT].add_task_container(task_container = task_container)
+                    
+                    new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(subtask) # add the task to the edge object.
         
     
     number_of_optimization_iterations = 300
@@ -782,37 +819,64 @@ def run_task_decomposition(complete_graph:nx.Graph,logger_file:str = None,logger
         # Everyone updates the consensus variables using the lagrangian coefficients updates.
         for node in computing_graph.nodes :
             computing_graph.nodes[node][AGENT].step_consensus_variables_with_currently_available_lagrangian_coefficients()
+    
+    
+    
+    # Extract solution.   
+    fig,(ax1,ax2) = plt.subplots(1,2)
+    for edge_id in computing_graph.nodes :
+        agent = computing_graph.nodes[edge_id][AGENT]
         
-        
-        
-        
-    # #! come back from here.
-    # fig,(ax1,ax2) = plt.subplots(1,2)
-    # for agentID,agent in decompositionAgents.items() :
-    #     if agent.is_initialized_for_optimization :
-    #         ax1.plot(range(num_optimization_iterations),agent._penaltyValues,label=f"Agent :{agentID}")
-    #         ax1.set_ylabel("penalties")
+        if agent.is_initialized_for_optimization :
+            ax1.plot(range( number_of_optimization_iterations),agent._penalty_values,label=f"Agent :{edge_id}")
+            ax1.set_ylabel("penalties")
             
-    #         ax2.plot(range(num_optimization_iterations),agent._cost_values,label=f"Agent :{agentID}")
-    #         ax2.set_ylabel("cost")
+            ax2.plot(range( number_of_optimization_iterations),agent._cost_values,label=f"Agent :{edge_id}")
+            ax2.set_ylabel("cost")
     
-    # ax1.legend()
-    # ax2.legend()
-    # printDecompositionResult(decompositionPaths =path_list, decompositionAgents =decompositionAgents, edge_objectsLists = edge_list)
+    ax1.legend()
+    ax2.legend()
     
-    # # now that the tasks have been decomposed it is time to clean the old tasks and construct the new taskGraph
-    # for edge_obj in edge_list :
-    #     if (not edge_obj.is_communicating) and (edge_obj.hasSpecifications) :
-    #         edge_obj.cleanTasks()     # after you have decomposed the tasks you can just clean them
+    # Fill the new_task graph.
+    for edge in new_task_graph.edges :
+        computing_edge_id = edge_to_int(edge)
+        
+        for container in computing_graph.nodes[computing_edge_id][AGENT].task_containers :
+            task = computing_graph.nodes[computing_edge_id][AGENT].deparametrize_container(task_container = container)
+            new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task)
     
-    # finalTaskGraph : nx.Graph = createTaskGraphFromEdges(edge_list=edge_list)
+    new_task_graph = clean_task_graph(new_task_graph) # clean the graph from edges without any tasks.
     
-    # nodesAttributes = deperametrizeTasks(decompostionAgents=decompositionAgents)
- 
-    # # set the attributes
-    # nx.set_node_attributes(finalTaskGraph,nodesAttributes)
+    # print the decomposition result
+    for critical_task,path in critical_task_to_path_mapping.items() :
+        
+        center_sum = np.array([0.,0.])
+        scale_sum  = 0
+        
+        print("**************************************************************")
+        print("Critical task :",critical_task.task_id)
+        for edge in edge_set_from_path(path) :
+            edge_id = edge_to_int(edge)
+            agent : EdgeComputingAgent = computing_graph.nodes[edge_id][AGENT]
+            critical_task_container    = agent.get_parameteric_container_with_parent_task(parent_task_id = critical_task.task_id)
+            
+            center = np.asarray(agent.optimizer.value(critical_task_container.center_var)).flatten()
+            scale  = float(agent.optimizer.value(critical_task_container.scale_var))
+            
+            center_sum += center
+            scale_sum  += scale
+        
+        print(f"Number of hyperplanes  : {len(critical_task.predicate.A)}")
+        print(f"Temporal operator      : {critical_task.temporal_operator}")
+        print(f"Original edge          : {(critical_task.predicate.source_agent,critical_task.predicate.target_agent)}")   
+        print(f"Decomposition path     : {path}")
+        print(f"Center summation       : {center_sum}")  
+        print(f"Decomposition accuracy : {scale_sum}")
     
-    return comm_graph,original_task_graph,computing_graph
+    
+    return communication_graph,original_task_graph,computing_graph
+
+
 
 
     
@@ -905,80 +969,8 @@ def run_task_decomposition(complete_graph:nx.Graph,logger_file:str = None,logger
 #         fig.delaxes(ax[jj])
      
    
-# def  deperametrizeTasks(decompostionAgents : dict[int,AgentTaskDecomposition])-> dict[int,list[StlTask]]:
-#     """
-#         Simulate agents deparametrization of the the task. This happens as follows. For all the active parametric tasks, each agent can repolace the task with a non parameteric one given its solution for the active tasks.
-#         For the tasks that are passive and parameteric. I have to ask the respective neigbour for its solution such that I can then update the parameteric tasks with the given values found by the computational agent
-#     """
-#     agentTasksPair = {}
-    
-    
-#     for agent in decompostionAgents.values() :
-#         taskList = []
-#         task_containers = agent.taskConstainers # active task containers
-#         passivetask_containers = agent.passiveTaskConstainers # active task containers
-        
-#         for task_container in task_containers :
-#             if task_container.task.is_parametric :
-#                 center = agent.optimizer.value(task_container.task.center)
-#                 scale  = agent.optimizer.value(task_container.task.scale)
-                
-#                 task_container.task.predicate.A
-#                 # create a new task out of the parameteric one
-#                 predicate = AbstractPolytopicPredicate(A     = task_container.task.predicate.A,
-#                                                      b     = scale*task_container.task.predicate.b,
-#                                                      center= center)
-#                 task = StlTask(temporalOperator   = task_container.task.temporal_operator,
-#                                      timeinterval       = task_container.task.time_interval,
-#                                      predicate          = predicate,
-#                                      source             = task_container.task.sourceNode,
-#                                      target             = task_container.task.targetNode,
-#                                      timeOfSatisfaction = task_container.task.timeOfSatisfaction)
-#                 taskList += [task]
-                
-                
-#             else : # no need for any parameter
-#                 taskList += [task_container.task]
-                        
-#         for task_container in passivetask_containers :
-#             if task_container.task.is_parametric :
-#                 # ask the agent on the other side of the node for the solution
-#                 if agent.agentID == task_container.task.sourceNode : # you are the source mnode ask the target node
-        
-#                     for container in decompostionAgents[task_container.task.targetNode].taskConstainers :
-#                         if container.taskID == task_container.taskID :
-#                             center = decompostionAgents[task_container.task.targetNode].optimizer.value(container.task.center)
-#                             scale  = decompostionAgents[task_container.task.targetNode].optimizer.value(container.task.scale)
-#                             break # only one active task from the other agent will correspond to a passive task for this agent. Both tasks have the same ID
-                    
-#                 else : # you are the target node ask the source node
-#                     for container in decompostionAgents[task_container.task.sourceNode].taskConstainers :
-#                         if container.taskID == task_container.taskID :
-#                             center = decompostionAgents[task_container.task.sourceNode].optimizer.value(container.task.center)
-#                             scale  = decompostionAgents[task_container.task.sourceNode].optimizer.value(container.task.scale)
-#                             break
-                    
-#                 task_container.task.predicate.A
-#                 # create a new task out of the parameteric one
-#                 predicate = AbstractPolytopicPredicate(A     = task_container.task.predicate.A,
-#                                                      b     = scale*task_container.task.predicate.b,
-#                                                      center= center)
-#                 task = StlTask(temporalOperator   = task_container.task.temporal_operator,
-#                                      timeinterval       = task_container.task.time_interval,
-#                                      predicate          = predicate,
-#                                      source             = task_container.task.sourceNode,
-#                                      target             = task_container.task.targetNode,
-#                                      timeOfSatisfaction = task_container.task.timeOfSatisfaction)
-                
-#                 taskList += [task]
-#             else : # no need for any parameter
-#                 taskList += [task_container.task]
-    
-#         agentTasksPair[agent.agentID] = {"tasks":taskList}
-    
-    
-#     return agentTasksPair
-    
+
+
     
 if __name__== "__main__" :
     
