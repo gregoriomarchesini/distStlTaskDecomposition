@@ -20,9 +20,11 @@ class TimeInterval :
         else :    
             if a>b :
                 raise ValueError("Time interval must be a couple of non decreasing time instants")
-         
-            self._a = float(a)
-            self._b = float(b)
+            try :
+                self._a = float(a)
+                self._b = float(b)
+            except :
+                raise ValueError(f"The given time instants must be convertible to float. Given types are {type(a)}  and {type(b)}")
         
     @property
     def a(self):
