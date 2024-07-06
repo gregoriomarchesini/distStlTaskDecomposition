@@ -278,7 +278,7 @@ def any_parametric( iterable:Iterable[TaskOptiContainer] ) -> bool :
     
     return any([task_container.task.is_parametric for task_container in iterable])
 
-
+    
 
 class EdgeComputingAgent(Publisher) :
     """
@@ -295,7 +295,7 @@ class EdgeComputingAgent(Publisher) :
         self._optimizer         : ca.Opti          = ca.Opti()    # optimizer for the single agent.
         self._edge_id           : int              = edge_id      # only save the edge as a unique integer.  ex: (4,1) -> 41
         self._task_containers   : list[TaskOptiContainer] = []    # list of task containers.
-        self._is_computing_edge : bool = True
+        self._parametric_task_count = 0
        
         self._warm_start_solution : ca.OptiSol   = None
         self._was_solved_already_once = False
@@ -335,10 +335,25 @@ class EdgeComputingAgent(Publisher) :
     
     @property
     def is_computing_edge(self):
-        return self._is_computing_edge
+        return bool(self._parametric_task_count)
     
-    def add_task_container(self,task_container:TaskOptiContainer) :
+    
+    
+    
+    def add_task_containers(self,task_containers: Iterable[TaskOptiContainer] | TaskOptiContainer) :
+        """
+        Add task containers to the agent
+        """
+        if isinstance(task_containers,TaskOptiContainer) :
+            self._add_task_container(task_containers)
+        elif isinstance(task_containers,Iterable):
+            for task_container in task_containers :
+                self._add_task_container(task_container)
+        else :
+            raise ValueError("The task containers must be an iterable of TaskOptiContainer. Given: " + str(type(task_containers)))
  
+    def _add_task_container(self,task_container:TaskOptiContainer) :
+        
         # Checks.
         if not isinstance(task_container.task.predicate,CollaborativePredicate) :
             message = "Only collaborative tasks are allowed as these ar the only ones that should be decomposed."
@@ -350,13 +365,17 @@ class EdgeComputingAgent(Publisher) :
             self._logger.error(message)
             raise RuntimeError(message)
         
+        #count parametric tasks
+        if task_container.task.is_parametric :
+            self._parametric_task_count += 1
+        
         task_edge_id = edge_to_int((task_container.task.predicate.source_agent,task_container.task.predicate.target_agent))
         if task_edge_id != self._edge_id :
             message = f"The task container with collaborative task over the edge {(task_edge_id)} does not belong to this the edge"
             self._logger.error(message)
             raise RuntimeError(message)
             
-        self._task_containers.append(task_container)
+        self._task_containers.append(task_container) 
             
     def _compute_shared_constraints(self) -> list[ca.MX]:
         """computes the shared inclusion constraint for the given agent. The shared constraints are the incluson of the path sequence of poytopes into the original decomposed polytope
@@ -367,7 +386,6 @@ class EdgeComputingAgent(Publisher) :
         
         constraints_list = []
         for container in self._task_containers :
-            
             if container.task.is_parametric :
                 task                 = container.task                          # extract task
                 num_computing_agents = container.length_decomposition_path -1  # Number of agents sharing the computation for this constraint
@@ -440,7 +458,6 @@ class EdgeComputingAgent(Publisher) :
     
     def compute_maximal_sets_intersecting_eventually_tasks(self) -> dict[TaskOptiContainer,set[TaskOptiContainer]]:
         
-        
         # Separate always and eventually tasks.
         always_task_containers      : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,AlwaysOperator)]
         eventually_task_containers  : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,EventuallyOperator)]
@@ -504,8 +521,9 @@ class EdgeComputingAgent(Publisher) :
         setup the optimization problem for the given agent
         """    
         
-        self._is_computing_edge = bool(len(self._task_containers))
-        
+        # If there is not prametric task you can skip
+        if not self.is_computing_edge :
+            return  
         
         if self._is_initialized_for_optimization :
             message = "The optimization problem was already set up. You can only set up the optimization problem once at the moment."
@@ -513,7 +531,6 @@ class EdgeComputingAgent(Publisher) :
             raise RuntimeError(message)
         
         if len(self._task_containers) == 0 :
-            self._is_computing_edge = False
             message = "The agent does not have any tasks to decompose. The optimization problem will not be setup and solved."
             self._logger.warning(message)
 
@@ -542,35 +559,36 @@ class EdgeComputingAgent(Publisher) :
         if len(overloading_constraints) != 0:
             for constraint in overloading_constraints :
                 self._optimizer.subject_to(constraint)
-        if len(shared_path_constraint) !=0 :
-            for constraint in shared_path_constraint :
-                self._optimizer.subject_to(constraint)
-        if len(overloading_constraints) == 0 and len(shared_path_constraint) == 0 :
-            self._is_computing_edge = False
-            self._logger.warning("The agent does not have any parametric task requiring decomposition.")
+        
+        # safety check 
+        if len(shared_path_constraint) == 0:
+            raise RuntimeError("An edge marked as computing does not have shared constraints. Contact the developers for a possible implementation error.")
+        for constraint in shared_path_constraint :
+            self._optimizer.subject_to(constraint)
             
-        if self._is_computing_edge :
-            print("-----------------------------------")
-            print(f"Computing edge                          : {self._edge_id}")
-            print(f"Number of overloading_constraints       : {len(overloading_constraints)}")
-            print(f"Number of shared constraints            : {len(shared_path_constraint )}")
-            print(f"Number of variables                     : {self.optimizer.nx}")
-            print(f"Number of parameters  (from concensus)  : {self.optimizer.np}")
-            
-            # set up cost and solver for the problem
-            self._optimizer.minimize(cost)
-            p_opts = dict(print_time=False, verbose=False,expand = True)
-            s_opts = dict(print_level=1)
+        
+        print("-----------------------------------")
+        print(f"Computing edge                          : {self._edge_id}")
+        print(f"Number of overloading_constraints       : {len(overloading_constraints)}")
+        print(f"Number of shared constraints            : {len(shared_path_constraint )}")
+        print(f"Number of variables                     : {self.optimizer.nx}")
+        print(f"Number of parameters  (from concensus)  : {self.optimizer.np}")
+        
+        # set up cost and solver for the problem
+        self._optimizer.minimize(cost)
+        p_opts = dict(print_time=False, verbose=False,expand = True)
+        s_opts = dict(print_level=1)
 
-            self._optimizer.solver("ipopt",p_opts,s_opts)
-            self._cost = cost
+        self._optimizer.solver("ipopt",p_opts,s_opts)
+        self._cost = cost
         
         
     def solve_local_problem(self,print_result:bool=False) -> None :
         
-        if not self._is_computing_edge :
+        # skip computations and add to counter
+        if not self.is_computing_edge :
             self._current_iteration += 1
-            return 
+            return  
             
         # Update the consensus parameters.
         for task_container in self._task_containers :
@@ -649,7 +667,6 @@ class EdgeComputingAgent(Publisher) :
         for task_container in self._task_containers :
             if task_container.task.is_parametric :
                 if task_container.parent_task_id == parent_task_id : # you have a task connected to the same parent id.
-                    
                     # From the variables of the neighbur extract the one correspoding to your edge.
                     consensus_variable = consensus_variables_map_from_neighbour[self._edge_id]
                     # Update the consensus variables as received from the neighbour.
@@ -701,8 +718,8 @@ class EdgeComputingAgent(Publisher) :
             polytope_0    =  pc.Polytope(A = A, b = b)
             new_predicate = CollaborativePredicate(polytope_0=polytope_0 , 
                                                    center = center,
-                                                   source_agent = task_container.task.predicate.source_agent, 
-                                                   target_agent = task_container.task.predicate.target_agent)
+                                                   source_agent_id = task_container.task.predicate.source_agent, 
+                                                   target_agent_id = task_container.task.predicate.target_agent)
             new_task = StlTask(predicate = new_predicate, temporal_operator = task_container.task.temporal_operator)
         else :
             # if task is not parametric return the task as it is
@@ -716,25 +733,66 @@ class EdgeComputingAgent(Publisher) :
                 if task_container.parent_task_id == parent_task_id :
                     return task_container
         return None
+    
+    
+    
+class EdgeComputingGraph(nx.Graph) :
+    def __init__(self,incoming_graph_data=None, **attr) -> None:
+        super().__init__(incoming_graph_data=None, **attr)
+    
+    def add_node(self, node_for_adding, **attr):
+        """ Adds an edge to the graph."""
+        super().add_node(node_for_adding, **attr)
+        self._node[node_for_adding][AGENT] = EdgeComputingAgent(edge_id = node_for_adding)
+    
+    
+    
+def extract_computing_graph_from_communication_graph(communication_graph :CommunicationGraph) :
+    
+    if not isinstance(communication_graph,CommunicationGraph) :
+        raise ValueError("The input graph must be a communication graph")
+    
+    computing_graph = EdgeComputingGraph()
+    
+    if not nx.is_tree(communication_graph) :
+        raise ValueError("The communication graph must be acyclic to obtain a valid computation graph")
+    
+    for edge in communication_graph.edges :
+        computing_graph.add_node(edge_to_int(edge))
+    
+    for edge in communication_graph.edges :    
+        # Get all edges connected to node1 and node2
+        edges_node1 = set(communication_graph.edges(edge[0]))
+        edges_node2 = set(communication_graph.edges(edge[1]))
+    
+        # Combine the edges and remove the original edge
+        adjacent_edges = list((edges_node1 | edges_node2) - {edge, (edge[1],edge[0])})
+        computing_edges = [ (edge_to_int(edge), edge_to_int(edge_neigh)) for edge_neigh in adjacent_edges]
+        
+        computing_graph.add_edges_from(computing_edges)
+    
+    return computing_graph
+    
+    
+    
           
 def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logger_file:str = None,logger_level:int = logging.INFO) :
     """Task decomposition pipeline"""
-            
+    
+    # Normalize the task graph and the communication graph to have the same nodes as a precaution.
+    communication_graph,task_graph = normalize_graphs(communication_graph, task_graph)
+    
     # Check the communication graph.
     if not nx.is_connected(communication_graph) :
         raise ValueError("The communication graph is not connected. Please provide a connected communication graph")
     if not nx.is_tree(communication_graph) :
         raise ValueError("The communication graph is not a acyclic. Please provide an acyclic communication graph")
     
-    original_task_graph :nx.Graph = clean_task_graph(task_graph) # remove edges that do not have tasks to keep the graph clean..
-    new_task_graph :nx.Graph = create_task_graph_from_edges(communication_graph.edges) # base the new task graph on the communication graph.
+    original_task_graph :TaskGraph = clean_task_graph(task_graph) # remove edges that do not have tasks to keep the graph clean..
+    new_task_graph      :TaskGraph = create_task_graph_from_edges(communication_graph.edges) # base the new task graph on the communication graph.
 
     # Create computing graph (just used for plotting).
-    computing_graph :nx.Graph = extract_computing_graph_from_communication_graph(communication_graph= communication_graph)
-    
-    for node in computing_graph.nodes :
-        # node is equal to edge id. ex : (4,1) -> 41
-        computing_graph.nodes[node][AGENT] = EdgeComputingAgent(edge_id = node,logging_file = logger_file ,logger_level = logger_level)
+    computing_graph :nx.Graph = extract_computing_graph_from_communication_graph(communication_graph = communication_graph)
 
     critical_task_to_path_mapping : dict[StlTask,list[int]] = {} # mapping of critical tasks to the path used to decompose them.
     
@@ -744,15 +802,16 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
         if edge in communication_graph.edges :
             task_list = original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
             # add the tasks to the new task graph.
+            
             new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task_list)
             
             # Add tasks to the computing graph to go on with the decomposition.
             for task in task_list :
                 container = TaskOptiContainer(task = task)
-                computing_graph.nodes[edge_to_int((edge[1],edge[0]))][AGENT].add_task_container(task_container = container)
+                computing_graph.nodes[edge_to_int((edge[1],edge[0]))][AGENT].add_task_containers(task_containers = container)
         
         # if the edge is a critical edge
-        elif not edge in communication_graph.edges :  # this edge is inconsistent with the communication graph
+        elif not (edge in communication_graph.edges) :  # this edge is inconsistent with the communication graph
             
             # Retrive all the tasks on the edge because such tasks will be decomposed
             tasks_to_be_decomposed: list[StlTask] =  original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
@@ -770,13 +829,13 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
                     
                     # Create parametric task along this edge and add it to the communication graph.
                     subtask = create_parametric_collaborative_task_from(task = parent_task , source_agent_id = source_node, target_agent_id = target_node ) 
-                    communication_graph[source_node][target_node][MANAGER].add_tasks(subtask) # add the task to the edge object.
+                    
                     # Create task container to be given to the computing agent corresponding to the edge.
                     task_container = TaskOptiContainer(task=subtask)
                     task_container.set_parent_task_and_decomposition_path(parent_task = parent_task,decomposition_path = path)
-                    computing_graph.nodes[edge_to_int((source_node,target_node))][AGENT].add_task_container(task_container = task_container)
+                    computing_graph.nodes[edge_to_int((source_node,target_node))][AGENT].add_task_containers(task_containers = task_container)
                     
-                    new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(subtask) # add the task to the edge object.
+                    # new_task_graph[source_node][target_node][MANAGER].add_tasks(subtask) # add the task to the edge object.
         
     
     number_of_optimization_iterations = 300
@@ -842,7 +901,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
         computing_edge_id = edge_to_int(edge)
         
         for container in computing_graph.nodes[computing_edge_id][AGENT].task_containers :
-            task = computing_graph.nodes[computing_edge_id][AGENT].deparametrize_container(task_container = container)
+            task = computing_graph.nodes[computing_edge_id][AGENT].deparametrize_container(task_container = container) # returns the task perse if there is nothing to deparatmetrize
             new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task)
     
     new_task_graph = clean_task_graph(new_task_graph) # clean the graph from edges without any tasks.
@@ -874,7 +933,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
         print(f"Decomposition accuracy : {scale_sum}")
     
     
-    return communication_graph,original_task_graph,computing_graph
+    return new_task_graph,computing_graph
 
 
 

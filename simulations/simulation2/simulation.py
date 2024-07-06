@@ -5,6 +5,7 @@ import stlddec.stl_task as pmod
 import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
 import polytope as pc
+import networkx as nx
 
 
 #! Fix example and do more complicated examples:
@@ -13,10 +14,15 @@ import polytope as pc
 #! 3. check if the cost 1/scale is better than the linear cost (it should be)
 #! 4. check if scaling of the variables help even if I doubt since the center variables do not have crazy high values.
 
+
+
 # List all the edges in the network with communication
-edges_in_the_network = [(1,2),(2,3),(3,1)]      
-G = gmod.create_graph_from_edges(edges_in_the_network)
-print(G.edges.values())
+task_edges = [(1,2),(2,3),(3,1)]
+comm_edges = [(1,2),(3,1)]     
+
+task_graph = gmod.create_task_graph_from_edges(task_edges)
+comm_graph = gmod.create_communication_graph_from_edges( comm_edges)
+
 
 # -------------- Setting the tasks -----------------------
 # EDGE 12
@@ -30,12 +36,13 @@ predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
                                            target_agent_id=2)
 # Set a temporal operator.
 t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
+print(t_operator)
     
 # Create a task.
 task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
     
 # Add the task to the edge.
-G[1][2][gmod.MANAGER].add_tasks(task)
+task_graph[1][2][gmod.MANAGER].add_tasks(task)
 
 # EDGE 32
 # Create aa regular polytope.
@@ -53,29 +60,30 @@ t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
 task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
     
 # Add the task to the edge.
-G[3][2][gmod.MANAGER].add_tasks(task)
+task_graph[3][2][gmod.MANAGER].add_tasks(task)
     
-# -------------- Disconnect the communication graph ---------------------
-    
-# Now break some of the edges.
-G  = gmod.break_communication_edge(G,[(2,3)])
 
 # -------------- Run The Decomposition -----------------------
-dmod.run_task_decomposition(complete_graph=G, logger_file="ciao")
+new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, task_graph = task_graph, logger_file="ciao")
 
 
+fig,axs = plt.subplots(1,4,figsize=(15,5)) 
 
-# viz.simulateAgents(finalTaskGraph,endTime=20,startTime = 0,initialAgentsState=initialAgentsState)
+pos = {1:np.array([0,0]),2:np.array([1,1]),3:np.array([2,0])}
+pos_comp     = {gmod.edge_to_int((i,j)): (pos[i] + pos[j])/2 for i,j in comm_graph.edges}
 
 
+nx.draw(comm_graph,with_labels=True    ,ax= axs[0],pos=pos)
+nx.draw(task_graph,with_labels=True    ,ax= axs[1],pos=pos)
+nx.draw(new_task_graph,with_labels=True,ax= axs[2],pos=pos)
+nx.draw(edge_computing_graph,with_labels=True,ax= axs[3],pos=pos_comp)
 
-# fig,ax = plt.subplots(3)
-# nx.draw_networkx(commGraph,ax=ax[0])
-# ax[0].set_title("Communication Graph")
-# nx.draw_networkx(finalTaskGraph,ax=ax[1])
-# ax[1].set_title("Final Task Graph")
-# nx.draw_networkx(originalTaskGraph,ax=ax[2])
-# ax[2].set_title("Original Task Graph")
+axs[0].set_title("Communication Graph")
+axs[1].set_title("Task Graph")
+axs[2].set_title("New Task Graph")
+axs[3].set_title("Computing Graph")
+
+
 
 
 plt.show()
