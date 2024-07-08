@@ -8,10 +8,10 @@ UniqueIdentifier : TypeAlias = int #Identifier of a single agent in the system
 
 def get_logger(name:str, level=logging.INFO, output_file:str=None)-> logging.Logger:
     
-    logging.basicConfig(level=level)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger    =  logging.getLogger(name)
     
+   
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)

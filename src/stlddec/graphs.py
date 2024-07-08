@@ -10,7 +10,7 @@ AGENT   = "agent"
 
 def edge_to_int(t:tuple[int,int]) -> int :
     """Converts a tuple to an integer"""
-    t= sorted(t)
+    t= sorted(t,reverse=True) # to avoid node "02" to becomes 2 we reverse order
     return int("".join(str(i) for i in t))
 
 
@@ -175,7 +175,7 @@ def create_task_graph_by_breaking_the_edges(communication_graph:CommunicationGra
 
     
 def clean_task_graph(task_graph:TaskGraph) -> TaskGraph:
-    """ Removes all the tasks from the graph"""
+    """ Removes edges that do not have specifications"""
     
     if not isinstance(task_graph,TaskGraph) :
         raise ValueError("The input must be a TaskGraph object")

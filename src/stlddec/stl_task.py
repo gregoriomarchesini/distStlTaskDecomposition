@@ -500,11 +500,11 @@ def get_M_and_Z_matrices_from_inclusion(P_including:StlTask|AbstractPolytopicPre
 
 
 
-def communication_consistency_matrices_for(task:StlTask,pos_dim:int = 2) -> list[np.ndarray]:
+def communication_consistency_matrices_for(task:StlTask) -> list[np.ndarray]:
     
-    vertices = task.predicate.vertices
+    vertices : list[np.ndarray] = task.predicate.vertices
     # assume the first `pos_dim` dimensions are the position dimensions
-    S = np.eye(pos_dim) 
+    S = np.eye(vertices[0].size) 
     
     N = []
     for vertex in vertices:

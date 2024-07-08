@@ -5,6 +5,8 @@ import networkx as nx
 import logging
 from typing import Iterable
 import matplotlib.pyplot as plt
+from math import floor
+from tqdm import tqdm
 
 from stlddec.stl_task import * 
 from stlddec.transport import Publisher
@@ -32,22 +34,24 @@ def powerset(iterable) -> list[set]:
 class TaskOptiContainer :
     """Storage of variables for each task to be decomposed (Only collaborative tasks)"""
     
-    def __init__(self, task : StlTask) -> None:
+    def __init__(self, task : StlTask, center_scale_factor: float = 1.) -> None:
         
         """
         """    
          
-        self._task = task
+         
+        if center_scale_factor <= 0 :
+            raise ValueError("The scale factor must be positive")
         
+        if not isinstance(task.predicate,CollaborativePredicate):
+            raise ValueError("Only collaborative tasks are allowed to be decomposed")
+        
+        self._task = task
         # These attributes are enables only when the task is parametric
         self._parent_task            :"StlTask"            = None  # instance of the parent class
         self._decomposition_path     :list[int]            = []    # path of the decomposition of the task when the task is parametric
         self._neighbour_edges_id     :list[int]            = []    # list of the edges neighbouring to the task edge and expressed as a single id. Ex : (4,1)-> (41) 
-        
-        
-        if not isinstance(self.task.predicate,CollaborativePredicate):
-            raise ValueError("Only collaborative tasks are allowed to be decomposed")
-            
+        self._center_scale_factor    :float                = center_scale_factor # this is used to scale the center_var variable in order to obtain better convergence (usually the communication radiu is used as scaling factor).
         
         self._is_initialized = False
         # Create variables for optimization (if the task is not parametric they are left to None).
@@ -153,13 +157,17 @@ class TaskOptiContainer :
         return self._average_consensus_param
     
     
-    def set_optimization_variables(self,opti:ca.Opti):
+    def set_optimization_variables(self,opti:ca.Opti, scale_factor:float = 1.0) -> None:
         """Set the optimization variables for the task container"""
         if not self.task.is_parametric :
             raise ValueError("The task is not parametric hence the optimization variables cannot be set")
         
-        self._center_var = opti.variable(self.task.predicate.state_space_dim,1)                            # center the parameteric formula
-        self._scale_var  = opti.variable(1)                                                         # scale for the parametric formula
+        if scale_factor <= 0 :
+            raise ValueError("The scale factor must be positive")
+        
+        self._center_scale_factor = scale_factor
+        self._center_var   = opti.variable(self.task.predicate.state_space_dim,1)*self._center_scale_factor                      # center the parameteric formula
+        self._scale_var    = opti.variable(1)                                                         # scale for the parametric formula
         self._eta_var     = ca.vertcat(self._center_var,self._scale_var)                                    # optimization variable
         
         coupling_constraint_size      = self.task.predicate.num_hyperplanes*self.task.predicate.num_vertices # Size of the matrix M
@@ -266,8 +274,7 @@ def get_inclusion_contraint(zeta:ca.MX, task_container:TaskOptiContainer,source:
         A_z = np.hstack((A,b)) 
         
         # The flip matrix reverts the sign of the center variable and lets the scale factor with the same sign.
-        flip_mat = -ca.DM.eye(task_container.task.state_space_dimension+1)
-        flip_mat[-1,-1] = 1
+        flip_mat = ca.diag(ca.vertcat(-ca.DM.ones(task_container.task.state_space_dimension),1))
         
         constraints = A@zeta - A_z@flip_mat@eta <= ca.DM.zeros((A.shape[0],1)) 
 
@@ -284,7 +291,7 @@ class EdgeComputingAgent(Publisher) :
     """
        Edge Agent Task Decomposition
     """
-    def __init__(self,edge_id : int, logging_file: str= None,logger_level: int = logging.INFO) -> None:
+    def __init__(self,edge_id : int,  logging_file: str= None,logger_level: int = logging.INFO) -> None:
         """
         Args:
             agentID (int): Id of the agent
@@ -296,13 +303,15 @@ class EdgeComputingAgent(Publisher) :
         self._edge_id           : int              = edge_id      # only save the edge as a unique integer.  ex: (4,1) -> 41
         self._task_containers   : list[TaskOptiContainer] = []    # list of task containers.
         self._parametric_task_count = 0
-       
+        self._communication_radius  = 100000                      # practically infinity
         self._warm_start_solution : ca.OptiSol   = None
-        self._was_solved_already_once = False
+        self._switch_to_SQPMETHOD     = False
+        self._use_non_linear_cost     = False
 
         self._num_iterations      = None
         self._current_iteration   = 0
-        self._learning_rate_0     = 0.9           # initial value of the learning rate 
+        self._learning_rate_0     = 2           # initial value of the learning rate 
+        self._decay_rate          = 0.7         # decay rate of the learning rate (<1)
         
         self._penalty = self._optimizer.variable(1)
         self._optimizer.subject_to(self._penalty>=0)
@@ -337,7 +346,16 @@ class EdgeComputingAgent(Publisher) :
     def is_computing_edge(self):
         return bool(self._parametric_task_count)
     
+    @property
+    def communication_radius(self):
+        return self._communication_radius
     
+    @communication_radius.setter
+    def communication_radius(self,new_radius:float):
+        
+        if new_radius <= 0 :    
+            raise ValueError("The communication radius must be positive")
+        self._communication_radius = float(new_radius)
     
     
     def add_task_containers(self,task_containers: Iterable[TaskOptiContainer] | TaskOptiContainer) :
@@ -398,12 +416,23 @@ class EdgeComputingAgent(Publisher) :
                 zero_vec     = ca.DM.zeros((container.average_consensus_param.size1(),1))
             
                 constraint   = (M@container.eta_var - Z)  - penalty_vec  + container.average_consensus_param <= zero_vec  # set the constraint
-                constraints_list = [constraint]
+                constraints_list += [constraint]
                 container.set_task_constraint_expression(constraint=constraint)
         
         return constraints_list
         
-     
+    def _compute_communication_consistentcy_constraints(self) -> list[ca.MX]:
+        
+        constraints = []
+        for task_container in self._task_containers :
+            if task_container.task.is_parametric :
+                task = task_container.task
+                Nk_list = communication_consistency_matrices_for(task = task)
+                
+                for Nk in Nk_list :
+                    constraints += [  task_container.eta_var.T@Nk@task_container.eta_var <= self._communication_radius**2 ]
+        
+        return constraints
             
     def _compute_overloading_constraints(self) -> list[ca.MX]:
         """multiple collaborative tasks
@@ -428,7 +457,7 @@ class EdgeComputingAgent(Publisher) :
             time_intersection = container1.task.temporal_operator.time_interval / container2.task.temporal_operator.time_interval
             if  ( not time_intersection .is_empty()) and (any_parametric([container1,container2])): # there is an intersection
                 
-                zeta = self._optimizer.variable(container1.task.state_space_dimension)
+                zeta = self._optimizer.variable(container1.task.state_space_dimension) * self.communication_radius # scaled by the communication radius for better convergence.
                 # Choose a direction arbitrarily ro be used for the inclusion constraint.
                 (i,j) = (container1.task.predicate.source_agent,container1.task.predicate.target_agent)
                 
@@ -440,7 +469,7 @@ class EdgeComputingAgent(Publisher) :
         # 2) Eventually intersection constraints.
         maximal_sets = self.compute_maximal_sets_intersecting_eventually_tasks()
         for eventually_container,always_container_set in maximal_sets.items() :
-            zeta = self._optimizer.variable(eventually_container.task.state_space_dimension)
+            zeta = self._optimizer.variable(eventually_container.task.state_space_dimension)* self.communication_radius # scaled by the communication radius for better convergence.
             
             (i,j) = (eventually_container.task.predicate.source_agent,eventually_container.task.predicate.target_agent)
             
@@ -535,9 +564,14 @@ class EdgeComputingAgent(Publisher) :
             self._logger.warning(message)
 
         
-        self._num_iterations     = int(num_iterations) # number of iterations.
+        self._num_iterations     = int(num_iterations)     # number of iterations.
+        self._decay_rate          = -1/(0.5*self._num_iterations)* np.log(0.7) # such that the learning rate is 1/e^3 at the end of the iterations. 
         self._is_initialized_for_optimization  = True
-        cost = 0
+        
+        if self._use_non_linear_cost:
+            cost = 1
+        else :
+            cost = 0
         
         for task_container in self._task_containers :
             
@@ -547,23 +581,39 @@ class EdgeComputingAgent(Publisher) :
                 # Set the scale factor positive in constraint
                 epsilon = 1e-3
                 self._optimizer.subject_to(task_container.scale_var >= epsilon)
-                self._optimizer.set_initial(task_container.scale_var,0.2) # set an initial guess value
-                cost += -task_container.scale_var
+                self._optimizer.subject_to(task_container.scale_var <= 1)          # this constraint is not needed in theory as the optimal solution must abide bide this constraint. But it helps convergence.
+                
+                # set an initial value for the scale variables
+                scale_guess =1
+                center_guess = task_container.parent_task.predicate.center/len(task_container.neighbour_edges_id)
+                
+                self._optimizer.set_initial(task_container.scale_var , scale_guess) # set an initial guess value
+                self._optimizer.set_initial(task_container.center_var, center_guess / task_container._center_scale_factor) # set an initial guess value for the center variable
+                
+                if self._use_non_linear_cost:
+                    cost *= 1/task_container.scale_var
+                else :
+                    cost += -10*task_container.scale_var 
             
-            cost += 12*self._penalty # setting cost toward zero
+        cost += 50*self._penalty # setting cost toward zero
        
         # set up private and shared constraints (also if you don't have constraints this part will be printed)
-        overloading_constraints = self._compute_overloading_constraints()
-        shared_path_constraint   = self._compute_shared_constraints()
+        overloading_constraints   = self._compute_overloading_constraints()
+        shared_path_constraint    = self._compute_shared_constraints()
+        communication_constraints = self._compute_communication_consistentcy_constraints()
         
         if len(overloading_constraints) != 0:
             for constraint in overloading_constraints :
                 self._optimizer.subject_to(constraint)
         
         # safety check 
-        if len(shared_path_constraint) == 0:
-            raise RuntimeError("An edge marked as computing does not have shared constraints. Contact the developers for a possible implementation error.")
+        if len(shared_path_constraint) == 0 or len(communication_constraints) == 0 :
+            raise RuntimeError("An edge marked as computing does not have shared constraints or communication consistency constraints. Contact the developers for a possible implementation error.")
+        
+        
         for constraint in shared_path_constraint :
+            self._optimizer.subject_to(constraint)
+        for constraint in communication_constraints :
             self._optimizer.subject_to(constraint)
             
         
@@ -601,19 +651,10 @@ class EdgeComputingAgent(Publisher) :
          
 
         try :
-            sol : ca.OptiSol = self._optimizer.solve() # the end 
-            if sol.stats()['success'] :
-                print("******************************************************************************")
-                print(f'The optimization for agent {self._edge_id } was successful with output: %s', sol.value(self._cost))
-                print("******************************************************************************")
-            else :
-                print("******************************************************************************")
-                print(f'The optimization for agent {self._edge_id } failed with output: %s', sol.value(self._cost))
-                print("******************************************************************************")
+            sol : ca.OptiSol = self._optimizer.solve() 
         except  Exception as e:
-            self._logger.error(f"An error occured while solving the optimization problem for agent {self._edge_id}")
+            self._logger.error(f"An error occured while solving the optimization problem for agent {self._edge_id}. The error message is: {e}")
             raise e
-      
         
         if print_result :
             print("--------------------------------------------------------")
@@ -622,11 +663,11 @@ class EdgeComputingAgent(Publisher) :
             for task_container in self._task_containers :
                 if task_container.task.is_parametric :
                     print("Center and Scale")
-                    print(self._optimizer.value(task_container.center_var))
+                    print(self._optimizer.value(task_container.center_var) * task_container._center_scale_factor)
                     print(self._optimizer.value(task_container.scale_var))
                     for zeta in self._zeta_variables :
                         print("Zeta")
-                        print(self._optimizer.value(zeta))
+                        print(self._optimizer.value(zeta) * self.communication_radius)
             
             print("penalty")
             print(self._optimizer.value(self._penalty))
@@ -643,17 +684,25 @@ class EdgeComputingAgent(Publisher) :
                 lagrangian_coefficient = self._optimizer.value(self._optimizer.dual(task_container.local_constraint))[:,np.newaxis]
                 task_container.update_lagrangian_variable_from_self(lagrangian_variable=lagrangian_coefficient) # Save the lagrangian variable associated with this task.
         
-        # Set the optimizer to SQPMETHOD after the first solution is found. This method is much faster than Ipopt once a good initial solution is found.
-        if not self._was_solved_already_once :
-            self._was_solved_already_once = True
-            self._optimizer.solver("sqpmethod",{"qpsol":"qpoases","expand":True}) # Much faster after an initial solution is found.
-            
         # Update current iteration count.
         self._current_iteration += 1
         
+        # Set the optimizer to SQPMETHOD after the first solution is found. This method is much faster than Ipopt once a good initial solution is found.
+        if self._switch_to_SQPMETHOD and (self._current_iteration==int(0.10*self._num_iterations)) :
+            
+            options = {'qpsol': 'qpoases',
+                      'expand': True,
+                      'print_time': 0,          # Suppress CasADi print time
+                      'verbose': False,         # General silent option for sqpmethod
+                      'qpsol_options': {  'printLevel': 'none'}
+                       }
+            
+            self._optimizer.solver("sqpmethod", options)
+
+        
     
     def step_consensus_variables_with_currently_available_lagrangian_coefficients(self) -> None :
-        learning_rate = self._learning_rate_0 * (1/self._current_iteration)**0.7
+        learning_rate = self._learning_rate_0 *(1/self._current_iteration*self._decay_rate)
         for task_container in self._task_containers :
             if task_container.task.is_parametric :
                 for edge_id in task_container.neighbour_edges_id :
@@ -706,7 +755,7 @@ class EdgeComputingAgent(Publisher) :
         
         if task_container.task.is_parametric :
             try :
-                center = np.asanyarray(self._optimizer.value(task_container.center_var))
+                center = np.asanyarray(self._optimizer.value(task_container.center_var)) * task_container._center_scale_factor
                 scale  = float(self._optimizer.value(task_container.scale_var))
             except Exception as e :
                 message = f"Error trying to retrieve the optimization variables for task {task_container.task.task_id}. Probably the optimization was not run yet. Error: {e}"
@@ -726,7 +775,7 @@ class EdgeComputingAgent(Publisher) :
             new_task = task_container.task
         return new_task
         
-    def get_parameteric_container_with_parent_task(self,parent_task_id:int) -> TaskOptiContainer | None :
+    def get_parametric_container_with_parent_task(self,parent_task_id:int) -> TaskOptiContainer | None :
         
         for task_container in self._task_containers :
             if task_container.task.is_parametric:
@@ -738,7 +787,7 @@ class EdgeComputingAgent(Publisher) :
     
 class EdgeComputingGraph(nx.Graph) :
     def __init__(self,incoming_graph_data=None, **attr) -> None:
-        super().__init__(incoming_graph_data=None, **attr)
+        super().__init__(incoming_graph_data, **attr)
     
     def add_node(self, node_for_adding, **attr):
         """ Adds an edge to the graph."""
@@ -747,7 +796,7 @@ class EdgeComputingGraph(nx.Graph) :
     
     
     
-def extract_computing_graph_from_communication_graph(communication_graph :CommunicationGraph) :
+def extract_computing_graph_from_communication_graph(communication_graph :CommunicationGraph, communication_radius:float = 1.0) :
     
     if not isinstance(communication_graph,CommunicationGraph) :
         raise ValueError("The input graph must be a communication graph")
@@ -771,13 +820,20 @@ def extract_computing_graph_from_communication_graph(communication_graph :Commun
         
         computing_graph.add_edges_from(computing_edges)
     
+    # set communication radius.
+    for node in computing_graph.nodes :
+        computing_graph.nodes[node][AGENT].communication_radius = communication_radius
+    
     return computing_graph
     
     
     
           
-def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logger_file:str = None,logger_level:int = logging.INFO) :
+def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, communication_radius:float ,number_of_optimization_iterations : int,logger_file:str = None,logger_level:int = logging.INFO) :
     """Task decomposition pipeline"""
+   
+    # set log level
+    logging.basicConfig(level=logger_level)
     
     # Normalize the task graph and the communication graph to have the same nodes as a precaution.
     communication_graph,task_graph = normalize_graphs(communication_graph, task_graph)
@@ -791,8 +847,8 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
     original_task_graph :TaskGraph = clean_task_graph(task_graph) # remove edges that do not have tasks to keep the graph clean..
     new_task_graph      :TaskGraph = create_task_graph_from_edges(communication_graph.edges) # base the new task graph on the communication graph.
 
-    # Create computing graph (just used for plotting).
-    computing_graph :nx.Graph = extract_computing_graph_from_communication_graph(communication_graph = communication_graph)
+    # Create computing graph. Communication radius important to ensure communication consistency of the solution (and avoid diverging iterates).
+    computing_graph :EdgeComputingGraph = extract_computing_graph_from_communication_graph(communication_graph = communication_graph, communication_radius = communication_radius)
 
     critical_task_to_path_mapping : dict[StlTask,list[int]] = {} # mapping of critical tasks to the path used to decompose them.
     
@@ -807,7 +863,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
             
             # Add tasks to the computing graph to go on with the decomposition.
             for task in task_list :
-                container = TaskOptiContainer(task = task)
+                container = TaskOptiContainer(task = task) # non parametric task containers.
                 computing_graph.nodes[edge_to_int((edge[1],edge[0]))][AGENT].add_task_containers(task_containers = container)
         
         # if the edge is a critical edge
@@ -831,14 +887,12 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
                     subtask = create_parametric_collaborative_task_from(task = parent_task , source_agent_id = source_node, target_agent_id = target_node ) 
                     
                     # Create task container to be given to the computing agent corresponding to the edge.
-                    task_container = TaskOptiContainer(task=subtask)
+                    task_container = TaskOptiContainer(task=subtask, center_scale_factor = communication_radius )
                     task_container.set_parent_task_and_decomposition_path(parent_task = parent_task,decomposition_path = path)
                     computing_graph.nodes[edge_to_int((source_node,target_node))][AGENT].add_task_containers(task_containers = task_container)
-                    
-                    # new_task_graph[source_node][target_node][MANAGER].add_tasks(subtask) # add the task to the edge object.
         
     
-    number_of_optimization_iterations = 300
+    number_of_optimization_iterations = int(number_of_optimization_iterations)
     # after all constraints are set, initialise source nodes as computing agents for the dges that were used for the optimization
     for node in computing_graph.nodes :
         computing_graph.nodes[node][AGENT].setup_optimizer(num_iterations = number_of_optimization_iterations)
@@ -858,10 +912,10 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
             
             agent_j.register("new_consensus_variable",agent_i.update_consensus_variable_from_edge_neighbour_callback)
             agent_j.register("new_lagrangian_variable",agent_i.update_lagrangian_variable_from_edge_neighbour_callback)
-            
+
 
     # Solution loop.
-    for jj in range(number_of_optimization_iterations ) :
+    for jj in tqdm(range(number_of_optimization_iterations )) :
         
         # Everyone shares the current consensus variables.
         for node in computing_graph.nodes :
@@ -869,7 +923,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
             
         # Everyone solves the local problem and updates the lagrangian variables.
         for node in computing_graph.nodes :
-            computing_graph.nodes[node][AGENT].solve_local_problem(  print_result=True )
+            computing_graph.nodes[node][AGENT].solve_local_problem(  print_result=False )
             
         # Everyone updates the value of the consensus variables.
         for node in computing_graph.nodes :
@@ -902,7 +956,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
         
         for container in computing_graph.nodes[computing_edge_id][AGENT].task_containers :
             task = computing_graph.nodes[computing_edge_id][AGENT].deparametrize_container(task_container = container) # returns the task perse if there is nothing to deparatmetrize
-            new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task)
+            new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task) # add the task to the new task graph once the solution is found.
     
     new_task_graph = clean_task_graph(new_task_graph) # clean the graph from edges without any tasks.
     
@@ -917,10 +971,15 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
         for edge in edge_set_from_path(path) :
             edge_id = edge_to_int(edge)
             agent : EdgeComputingAgent = computing_graph.nodes[edge_id][AGENT]
-            critical_task_container    = agent.get_parameteric_container_with_parent_task(parent_task_id = critical_task.task_id)
+            task_container    = agent.get_parametric_container_with_parent_task(parent_task_id = critical_task.task_id)
+            task = task_container.task
             
-            center = np.asarray(agent.optimizer.value(critical_task_container.center_var)).flatten()
-            scale  = float(agent.optimizer.value(critical_task_container.scale_var))
+            if task.predicate.source_agent != edge[0] :
+                center = -np.asarray(agent.optimizer.value(task_container.center_var)).flatten()*task_container._center_scale_factor
+                scale  = float(agent.optimizer.value(task_container.scale_var))
+            else :
+                center = np.asarray(agent.optimizer.value(task_container.center_var)).flatten()*task_container._center_scale_factor
+                scale  = float(agent.optimizer.value(task_container.scale_var))
             
             center_sum += center
             scale_sum  += scale
@@ -929,6 +988,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,logg
         print(f"Temporal operator      : {critical_task.temporal_operator}")
         print(f"Original edge          : {(critical_task.predicate.source_agent,critical_task.predicate.target_agent)}")   
         print(f"Decomposition path     : {path}")
+        print(f"Original center        : {critical_task.predicate.center.flatten()}")
         print(f"Center summation       : {center_sum}")  
         print(f"Decomposition accuracy : {scale_sum}")
     
