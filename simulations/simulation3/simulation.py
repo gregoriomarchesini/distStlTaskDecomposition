@@ -1,59 +1,95 @@
+
 import numpy as np
 import matplotlib.pyplot as plt
 import stlddec.stl_task as pmod
-import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
 import networkx as nx
-import random
+import stlddec.simulation as viz
 
 
-np.random.seed(100)
-random.seed(100)
+# create edges for decomposition. All edges are undirected
+communicatingEdges = [(1,2),(2,3),(3,5),(3,4),(1,6),(6,7),(7,8),(9,7)]
+brokenEdges        = [(1,9),(1,8),(1,4),(1,5),(1,7),(1,3),(1,1)]
+
+edgeList = []
+for (i,j)  in communicatingEdges :
+    edgeList += [dmod.GraphEdge(source=i,target=j,isCommunicating=1)]
+
+for (i,j)  in brokenEdges :
+    edgeList += [dmod.GraphEdge(source=i,target=j,isCommunicating=0)]
 
 
-comm_graph, task_graph,regular_positions = gmod.get_regular_polytopic_star_graph(num_vertices = 4,num_polygones=3,inter_ring_distance=9)
+# create an initial state for each node 
+initialAgentsState ={ 9:np.array([5,20]),
+                      6:np.array([-2,10]),
+                      5:np.array([8,-25]),
+                      4:np.array([-10,-20]),
+                      3:np.array([15,8]),
+                      2:np.array([5,5]),
+                      8:np.array([14,5]),
+                      7:np.array([-8,13]),
+                      1:np.array([0,0]),
+                      }
 
-# ------ adding some tasks at random -------- 
-tasking_percentage = 0.5
-edges_to_be_tasked = random.sample( list(task_graph.edges), int(len(task_graph.edges)*tasking_percentage) )
+predicate  = pmod.regular2DPolygone(numberHyperplanes = 5,distanceFromCenter = 5,center=np.array([-20,5])) 
+task       = pmod.StlTask(temporalOperator="always",timeinterval=pmod.TimeInterval( a = 10,b = 20),predicate=predicate,source=1,target=9)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,9))
+edge.addTasks(task)
 
-number_of_hyperplanes = 5
-distance_from_center  = 4
+predicate  = pmod.regular2DPolygone(numberHyperplanes = 5,distanceFromCenter = 5,center=np.array([20,5])) 
+task       = pmod.StlTask(temporalOperator="always",timeinterval=pmod.TimeInterval( a = 10,b = 20),predicate=predicate,source=1,target=5)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,5))
+edge.addTasks(task)
 
-for edge in edges_to_be_tasked :
-    
-    
-    center_regular = regular_positions[edge[0]] - regular_positions[edge[1]]
-    print(center_regular)
-    predicate   = pmod.CollaborativePredicate(polytope_0 = pmod.regular_2D_polytope(number_of_hyperplanes,distance_from_center),
-                                              source_agent_id   = edge[1],
-                                              target_agent_id   = edge[0], 
-                                              center            = center_regular)
+predicate  = pmod.regular2DPolygone(numberHyperplanes=5,distanceFromCenter=2,center=np.array([-7,12])) 
+task       = pmod.StlTask(temporalOperator="always",timeinterval=pmod.TimeInterval( a = 10,b = 20),predicate=predicate,source=1,target=6)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,6))
+edge.addTasks(task)
 
-    task = pmod.StlTask(temporal_operator = pmod.AlwaysOperator(pmod.TimeInterval(0,10)),
-                        predicate         = predicate)
-    
-    task_graph[edge[0]][edge[1]][gmod.MANAGER].add_tasks(task)
+predicate  = pmod.regular2DPolygone(numberHyperplanes=5,distanceFromCenter=2,center=np.array([7,12])) 
+task       = pmod.StlTask(temporalOperator="always",timeinterval=pmod.TimeInterval( a = 10,b = 20),predicate=predicate,source=1,target=2)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,2))
+edge.addTasks(task)
 
-task_graph = gmod.clean_task_graph(task_graph)
+predicate  = pmod.regular2DPolygone(numberHyperplanes=5,distanceFromCenter=2,center=np.array([-7,20])) 
+task       = pmod.StlTask(temporalOperator="eventually",timeinterval=pmod.TimeInterval( a = 19,b = 23),predicate=predicate,source=1,target=8,timeOfSatisfaction=22)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,8))
+edge.addTasks(task)
 
-
-new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, task_graph = task_graph,number_of_optimization_iterations =100, communication_radius=20,logger_level="ERROR")
-
-
-fig,axs = plt.subplots(1,4,figsize=(15,5)) 
-
-pos = nx.spring_layout(comm_graph)
-pos_comp     = {gmod.edge_to_int((i,j)): (regular_positions[i] + regular_positions[j])/2 for i,j in comm_graph.edges}
+predicate  = pmod.regular2DPolygone(numberHyperplanes=5,distanceFromCenter=2,center=np.array([7,28])) 
+task       = pmod.StlTask(temporalOperator="eventually",timeinterval=pmod.TimeInterval( a = 19,b = 23),predicate=predicate,source=1,target=4,timeOfSatisfaction=22)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,4))
+edge.addTasks(task)
 
 
-nx.draw(comm_graph,with_labels=True    ,ax= axs[0],pos=regular_positions)
-nx.draw(task_graph,with_labels=True    ,ax= axs[1],pos=regular_positions)
-nx.draw(new_task_graph,with_labels=True,ax= axs[2],pos=regular_positions)
-nx.draw(edge_computing_graph,with_labels=True,ax= axs[3],pos=pos_comp)
+predicate  = pmod.regular2DPolygone(numberHyperplanes=5,distanceFromCenter=2,center=np.array([-7,20])) 
+task       = pmod.StlTask(temporalOperator="eventually",timeinterval=pmod.TimeInterval( a = 30,b = 35),predicate=predicate,source=1,target=8,timeOfSatisfaction=33)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,8))
+edge.addTasks(task)
 
-axs[0].set_title("Communication Graph")
-axs[1].set_title("Task Graph")
-axs[2].set_title("New Task Graph")
-axs[3].set_title("Computing Graph")
+predicate  = pmod.regular2DPolygone(numberHyperplanes=5,distanceFromCenter=2,center=np.array([7,20])) 
+task       = pmod.StlTask(temporalOperator="eventually",timeinterval=pmod.TimeInterval( a = 30,b = 35),predicate=predicate,source=1,target=4,timeOfSatisfaction=33)
+edge       = dmod.findEdge(edgeList=edgeList,edge= (1,4))
+edge.addTasks(task)
+
+
+
+commGraph,finalTaskGraph,originalTaskGraph = dmod.runTaskDecomposition(edgeList=edgeList)
+
+
+
+# viz.simulateAgents(finalTaskGraph,endTime=40,startTime = 0,initialAgentsState=initialAgentsState,cleaningTimes=[24])
+
+
+
+fig,ax = plt.subplots(3)
+nx.draw_networkx(commGraph,ax=ax[0])
+ax[0].set_title("Communication Graph")
+nx.draw_networkx(finalTaskGraph,ax=ax[1])
+ax[1].set_title("Final Task Graph")
+nx.draw_networkx(originalTaskGraph,ax=ax[2])
+ax[2].set_title("Original Task Graph")
+
+
 plt.show()
+
