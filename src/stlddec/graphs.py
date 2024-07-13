@@ -11,7 +11,6 @@ AGENT   = "agent"
 def edge_to_int(t:tuple[int,int]) -> int :
     """Converts a tuple to an integer"""
     t= sorted(t,reverse=True) # to avoid node "02" to becomes 2 we reverse order
-    t= sorted(t,reverse=True) # to avoid node "02" to becomes 2 we reverse order
     return int("".join(str(i) for i in t))
 
 
@@ -31,27 +30,6 @@ class CommunicationGraph(nx.Graph) :
         super().__init__(incoming_graph_data, **attr)
         
         
-    
-
-
-
-class TaskGraph(nx.Graph) :
-    def __init__(self,incoming_graph_data=None, **attr) -> None:
-        super().__init__(incoming_graph_data, **attr)
-    
-    def add_edge(self,u_of_edge, v_of_edge, **attr) :
-        """ Adds an edge to the graph."""
-        super().add_edge(u_of_edge, v_of_edge, **attr)
-        self[u_of_edge][v_of_edge][MANAGER] = EdgeTaskManager(edge_i = u_of_edge,edge_j = v_of_edge)
-    
-    
-class CommunicationGraph(nx.Graph) :
-    def __init__(self,incoming_graph_data=None, **attr) -> None:
-        super().__init__(incoming_graph_data, **attr)
-        
-        
-    
-
 
 class EdgeTaskManager() :
     
@@ -108,7 +86,6 @@ class EdgeTaskManager() :
             target = task.predicate.agent_id
         else :
             raise ValueError(f"The predicate must be either a {CollaborativePredicate.__name__} or an {IndependentPredicate.__name__}")
-            raise ValueError(f"The predicate must be either a {CollaborativePredicate.__name__} or an {IndependentPredicate.__name__}")
             
         return ( (source,target) == self._edge ) or ( (target,source) == self._edge )
     
@@ -140,50 +117,42 @@ class EdgeTaskManager() :
         self._is_involved_in_optimization = True
         
 
-
-def create_task_graph_from_edges(edges : list[tuple[int,int]])-> TaskGraph :
 def create_task_graph_from_edges(edges : list[tuple[int,int]])-> TaskGraph :
     """ Creates a communication graph from a list of edges. The edges are assumed to be undirected and all communicating"""
     
-    G = TaskGraph()
     G = TaskGraph()
     try :
         for edge in edges :
             G.add_edge(edge[0],edge[1])
     except Exception as e:
         raise ValueError(f"The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The following exception was raised : \n {e}")
-        raise ValueError(f"The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The following exception was raised : \n {e}")
     
     return G
 
 def create_communication_graph_from_edges(edges : list[tuple[int,int]],add_task_manager:bool = False) -> CommunicationGraph:
-def create_communication_graph_from_edges(edges : list[tuple[int,int]],add_task_manager:bool = False) -> CommunicationGraph:
     """ Creates a communication graph from a list of edges. The edges are assumed to be undirected and all communicating"""
     
-    G = CommunicationGraph()
     G = CommunicationGraph()
     try :
         for edge in edges :
             G.add_edge(edge[0],edge[1])
     except Exception as e:
         raise ValueError(f"The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The following exception was raised : \n {e}")
-        raise ValueError(f"The edges must be a list of tuples. EX: [(1,2), (2,3), ...]. The following exception was raised : \n {e}")
     
     return G
 
-def normalize_graphs(comm_graph:CommunicationGraph, task_graph:TaskGraph) -> tuple[CommunicationGraph,TaskGraph]:
 def normalize_graphs(comm_graph:CommunicationGraph, task_graph:TaskGraph) -> tuple[CommunicationGraph,TaskGraph]:
     """ Makes sure that both graphs have the number of edges"""
     nodes = set(comm_graph.nodes).union(set(task_graph.nodes))
+    
     for node in nodes :
         if node not in comm_graph.nodes :
             comm_graph.add_node(node)
-        if node not in task_graph.nodes :
-            task_graph.add_node(node)
-    return comm_graph,task_graph
+    
     return comm_graph,task_graph
 
-def create_task_graph_by_breaking_the_edges(communication_graph:CommunicationGraph,broken_edges:list[tuple[int,int]]) -> TaskGraph:
+
+
 def create_task_graph_by_breaking_the_edges(communication_graph:CommunicationGraph,broken_edges:list[tuple[int,int]]) -> TaskGraph:
     """ Breaks the communication between the given edges. The edges are assumed to be undirected. The graph is not copied by the functions so
         G = break_communication_edge(G,edges) will modify the graph G as well as simply calling break_communication_edge(G,edges) will.

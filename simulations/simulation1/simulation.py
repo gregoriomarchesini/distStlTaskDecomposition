@@ -15,7 +15,7 @@ random.seed(100)
 comm_graph, task_graph,regular_positions = gmod.get_regular_polytopic_star_graph(num_vertices = 3,num_polygones=5,inter_ring_distance=9)
 
 # ------ adding some tasks at random -------- 
-tasking_percentage = 0.6
+tasking_percentage = 0.2
 edges_to_be_tasked = random.sample( list(task_graph.edges), int(len(task_graph.edges)*tasking_percentage) )
 
 
@@ -40,7 +40,11 @@ for edge in edges_to_be_tasked :
 task_graph = gmod.clean_task_graph(task_graph)
 
 
-new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, task_graph = task_graph,number_of_optimization_iterations =700, communication_radius=20,logger_level="ERROR")
+new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, 
+                                                                   task_graph = task_graph,
+                                                                   number_of_optimization_iterations =100, 
+                                                                   communication_radius=20,
+                                                                   logger_level="ERROR")
 
 
 fig,axs = plt.subplots(1,4,figsize=(15,5)) 
