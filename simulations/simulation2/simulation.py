@@ -6,6 +6,7 @@ import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
 import polytope as pc
 import networkx as nx
+import networkx as nx
 
 
 #! Fix example and do more complicated examples:
@@ -16,7 +17,15 @@ import networkx as nx
 
 
 
+
+
 # List all the edges in the network with communication
+task_edges = [(1,2),(2,3),(3,1)]
+comm_edges = [(1,2),(3,1)]     
+
+task_graph = gmod.create_task_graph_from_edges(task_edges)
+comm_graph = gmod.create_communication_graph_from_edges( comm_edges)
+
 task_edges = [(1,2),(2,3),(3,1)]
 comm_edges = [(1,2),(3,1)]     
 
@@ -37,11 +46,13 @@ predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
 # Set a temporal operator.
 t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
 print(t_operator)
+print(t_operator)
     
 # Create a task.
 task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
     
 # Add the task to the edge.
+task_graph[1][2][gmod.MANAGER].add_tasks(task)
 task_graph[1][2][gmod.MANAGER].add_tasks(task)
 
 # EDGE 32
@@ -61,10 +72,11 @@ task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)
     
 # Add the task to the edge.
 task_graph[3][2][gmod.MANAGER].add_tasks(task)
+task_graph[3][2][gmod.MANAGER].add_tasks(task)
     
 
 # -------------- Run The Decomposition -----------------------
-new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, task_graph = task_graph, logger_file="ciao")
+new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, task_graph = task_graph,number_of_optimization_iterations =1000, communication_radius=20,logger_level="ERROR")
 
 
 fig,axs = plt.subplots(1,4,figsize=(15,5)) 
