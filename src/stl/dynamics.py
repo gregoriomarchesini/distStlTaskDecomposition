@@ -27,7 +27,6 @@ SOFTWARE.
 import casadi as ca
 import numpy as np
 from abc import ABC, abstractmethod
-from enum import StrEnum
 from itertools import product
 from typing import TypeAlias
 
@@ -37,7 +36,7 @@ UniqueIdentifier: TypeAlias = int
 # for describing a dynamical system. Feel free to add more names if you need them
 
 
-FREQUENCY = 10 # hz
+FREQUENCY = 240 # hz
 
 def is_casadiMX(x):
     return isinstance(x, ca.MX)
@@ -151,16 +150,6 @@ class DynamicalModel(ABC):
         return ca.MX.sym("state_vector",0,0)
     
     
-    # Todo:adding other states other substates 
-    @property
-    @abstractmethod
-    def position(self)->ca.MX:
-        """
-        The position of the dynamical system based on the defined state (example : self._position = self._state_vector[0:2])
-        """
-        pass
-  
-    
     @property
     @abstractmethod
     def input_constraints_A(self)->ca.MX:
@@ -171,6 +160,7 @@ class DynamicalModel(ABC):
         Support function to construct such polygons are provided
         """
         pass
+    
     
     @property
     @abstractmethod
@@ -188,14 +178,17 @@ class DynamicalModel(ABC):
     @abstractmethod
     def maximum_expressible_speed(self)->float:
         """
-        The maximum speed (a.k.a \max_x |f(x) + g(x)u|) that the dynamical system can express for fast collision checking computation
+        Heuristic of the maximum value of Lf + Lg@u
+        
+        This is applied to make some heuristic on the construction of LinearBarrier functions for example. It is important to consider this value carefully.
+        For a single integrator, thenorm of the maximum allowed speed is the straight answer, but for more complex systems this is not the case.
+        It is better to give a bit more conservative value rather than a less conservative one.
         """
         pass
     
-    
     @property
     def step_fun(self)->ca.Function:
-        return self._get_step_function(rk4Steps=3)
+        return self._get_step_function(rk4Steps=1)
     
     
     @property
@@ -228,7 +221,7 @@ class DynamicalModel(ABC):
     def g_fun(self)->ca.Function:
         """
         Casadi function that can be used to evaluate the g matrix for a given state. This is useful for example to compute the lie derivative of a barrier function along the system
-
+        dynamics -> x_dot = f(x) + g(x)u
         Returns:
             ca.Function: function that can be used to evaluate the g matrix for a given state
         
@@ -245,7 +238,8 @@ class DynamicalModel(ABC):
     def f_fun(self)->ca.Function:
         """
         Casadi function that can be used to evaluate the f vector for a given state. This is useful for example to compute the lie derivative of a barrier function along the system
-
+        dynamics -> x_dot = f(x) + g(x)u
+        
         Returns:
             ca.Function: function that can be used to evaluate the f vector for a given state
             
@@ -572,12 +566,12 @@ class SingleIntegrator2D(DynamicalModel):
         # control input
         self._position = self._state_vector
 
-        self._input_constraints_A, self._input_constraints_b,self._input_constraints_vertices = create_approximate_ball_constraints2d(radius=self._max_velocity,points_number=40)
+        self._input_constraints_A, self._input_constraints_b,self._input_constraints_vertices = create_approximate_ball_constraints2d(radius=self._max_velocity,points_number=20)
         self._step_fun = self._get_step_function(rk4Steps=3) # created at initalization
 
    
     @property
-    def max_velocity(self) -> float:
+    def maximum_expressible_speed(self)->float:
         return self._max_velocity
 
     @property
@@ -615,10 +609,6 @@ class SingleIntegrator2D(DynamicalModel):
     @property
     def step_fun(self)->ca.Function:
         return self._step_fun
-    
-    @property
-    def maximum_expressible_speed(self)->float:
-        return self._max_velocity
 
 
 
@@ -650,7 +640,7 @@ class DoubleIntegrator2D(DynamicalModel):
         self._g = ca.vertcat(np.zeros((2,2)),np.eye(2))
         self._f = ca.vertcat(self._velocity,0,0) # no state drift
         
-        A,B,vertices = create_approximate_ball_constraints2d(radius = self._max_acceleration,points_number=40)
+        A,B,vertices = create_approximate_ball_constraints2d(radius = self._max_acceleration,points_number=20)
         
         self._input_constraints_A = A
         self._input_constraints_b = B

@@ -1,4 +1,4 @@
-from stlddec.stl_task import *
+from stl.stl import *
 import matplotlib.pyplot as plt
 
 def separate_line():
@@ -79,12 +79,12 @@ assert time_interval1/time_interval2 == TimeInterval(3,3)
 assert (time_interval1/time_interval1).is_singular()
 separate_line()
 print("Temporal operator G_[0,10]")
-temporal_operator = AlwaysOperator(TimeInterval(0,10))
+temporal_operator = G(TimeInterval(0,10))
 print("Always operator time of remotion: ",temporal_operator.time_of_remotion)
 print("Always operator time of satisfaction: ",temporal_operator.time_of_satisfaction)
 separate_line()
 
-temporal_operator = EventuallyOperator(TimeInterval(0,10))
+temporal_operator = F(TimeInterval(0,10))
 print("Eventually operator time of remotion: ",temporal_operator.time_of_remotion)
 print("Eventually  operator time of satisfaction: ",temporal_operator.time_of_satisfaction)
 print("Time of satisfaction is the same as time of remotion")
@@ -115,7 +115,7 @@ assert not np.all(np.linalg.norm(P_collab.A +A,axis=1))
 separate_line()
 # Test 6: Test tasks
 print("Test 6: Test tasks")
-task = StlTask(AlwaysOperator(TimeInterval(0,10)),P)
+task = StlTask(G(TimeInterval(0,10)),P)
 assert task.state_space_dimension == 2
 assert task.is_parametric
 assert task.predicate == P

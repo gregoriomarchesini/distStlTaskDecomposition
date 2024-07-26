@@ -1,8 +1,8 @@
 import matplotlib.pyplot as plt
-from   stlddec.stl_task import regular_2D_polytope, TimeInterval, AlwaysOperator,StlTask
+from   stl.stl import regular_2D_polytope, TimeInterval, G,StlTask
 import polytope as pc
 import networkx as nx
-from   stlddec.stl_task import StlTask, CollaborativePredicate
+from   stl.stl import StlTask, CollaborativePredicate
 import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
 
@@ -24,13 +24,11 @@ task_edges = [(1,5),(1,7),(1,4),(1,9)]
 
 for edge in task_edges :
     P    =  CollaborativePredicate(polytope,edge[0],edge[1])
-    task = StlTask(AlwaysOperator(TimeInterval(0,10)),P)
+    task = StlTask(G(TimeInterval(0,10)),P)
     task_graph[edge[0]][edge[1]][gmod.MANAGER].add_tasks(task)
     
 
 G_computing = dmod.extract_computing_graph_from_communication_graph(communication_graph = comm_graph)
-
-
 
 fig,axs = plt.subplots(1,3,figsize=(15,5)) 
 

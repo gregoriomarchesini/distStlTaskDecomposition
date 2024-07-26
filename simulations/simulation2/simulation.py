@@ -1,7 +1,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import stlddec.stl_task as pmod
+import stl.stl as pmod
 import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
 import polytope as pc
@@ -44,7 +44,7 @@ predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
                                            source_agent_id=1,
                                            target_agent_id=2)
 # Set a temporal operator.
-t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
+t_operator  = pmod.G(pmod.TimeInterval(0,10))
 print(t_operator)
 print(t_operator)
     
@@ -65,7 +65,7 @@ predicate   = pmod.CollaborativePredicate( polytope_0=  polytope,
                                            source_agent_id=3,
                                            target_agent_id=2)
 # Set a temporal operator.
-t_operator  = pmod.AlwaysOperator(pmod.TimeInterval(0,10))
+t_operator  = pmod.G(pmod.TimeInterval(0,10))
     
 # Create a task.
 task        = pmod.StlTask(temporal_operator=t_operator,predicate=predicate)

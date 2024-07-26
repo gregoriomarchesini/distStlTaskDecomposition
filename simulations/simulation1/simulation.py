@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import stlddec.stl_task as pmod
+import stl.stl as pmod
 import stlddec.graphs as gmod
 import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
@@ -24,25 +24,22 @@ distance_from_center  = 4
 
 for edge in edges_to_be_tasked :
     
-    
     center_regular = regular_positions[edge[0]] - regular_positions[edge[1]]
-    print(center_regular)
     predicate   = pmod.CollaborativePredicate(polytope_0 = pmod.regular_2D_polytope(number_of_hyperplanes,distance_from_center),
                                               source_agent_id   = edge[1],
                                               target_agent_id   = edge[0], 
                                               center            = center_regular)
 
-    task = pmod.StlTask(temporal_operator = pmod.AlwaysOperator(pmod.TimeInterval(0,10)),
-                        predicate         = predicate)
+    task = pmod.G(5,10) >> predicate
     
-    task_graph[edge[0]][edge[1]][gmod.MANAGER].add_tasks(task)
+    task_graph.attach(task)
 
 task_graph = gmod.clean_task_graph(task_graph)
 
 
 new_task_graph, edge_computing_graph = dmod.run_task_decomposition(communication_graph = comm_graph, 
                                                                    task_graph = task_graph,
-                                                                   number_of_optimization_iterations =100, 
+                                                                   number_of_optimization_iterations =1000, 
                                                                    communication_radius=20,
                                                                    logger_level="ERROR")
 

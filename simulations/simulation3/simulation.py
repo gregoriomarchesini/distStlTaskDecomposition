@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import stlddec.stl_task as pmod
+import stl.stl as pmod
 import stlddec.graphs as gmod
 import stlddec.decomposition as dmod
 import networkx as nx
@@ -30,7 +30,7 @@ for edge in edges_to_be_tasked :
                                               target_agent_id   = edge[0], 
                                               center            = center_regular)
 
-    task = pmod.StlTask(temporal_operator = pmod.AlwaysOperator(pmod.TimeInterval(0,10)),
+    task = pmod.StlTask(temporal_operator = pmod.G(pmod.TimeInterval(0,10)),
                         predicate         = predicate)
     
     task_graph[edge[0]][edge[1]][gmod.MANAGER].add_tasks(task)

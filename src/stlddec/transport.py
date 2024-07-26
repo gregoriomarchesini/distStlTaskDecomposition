@@ -96,6 +96,3 @@ class Publisher(ABC):
         return list(self._subscribers.keys())
     
     
-class Message:
-    def __init__(self, sender_id:str):
-         self.sender_id = sender_id

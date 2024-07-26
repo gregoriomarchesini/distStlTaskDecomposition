@@ -1,8 +1,11 @@
 import networkx as nx
 from   typing import TypeVar
-from   stlddec.stl_task import StlTask, CollaborativePredicate, IndependentPredicate
+from   enum import Enum
+import multiprocessing as mp
 import numpy as np
-W = TypeVar("W")
+
+from   stl.stl import StlTask, CollaborativePredicate, IndependentPredicate
+
 
 
 MANAGER = "manager"
@@ -24,7 +27,43 @@ class TaskGraph(nx.Graph) :
         super().add_edge(u_of_edge, v_of_edge, **attr)
         self[u_of_edge][v_of_edge][MANAGER] = EdgeTaskManager(edge_i = u_of_edge,edge_j = v_of_edge)
     
-    
+    def _attach_single(self,task: StlTask) :
+        """ Attaches a task to the edge of the graph"""
+        if not isinstance(task,StlTask) :
+            raise ValueError("The task must be a StlTask object")
+        
+        
+        if isinstance(task.predicate,IndependentPredicate) :
+            if not ((task.predicate.agent_id,task.predicate.agent_id) in self.edges) :
+                
+                self.add_edge(task.predicate.agent_id,task.predicate.agent_id)
+                self.edges[task.predicate.agent_id,task.predicate.agent_id][MANAGER].add_tasks(task)
+            else :
+                self.edges[task.predicate.agent_id,task.predicate.agent_id][MANAGER].add_tasks(task)
+        
+        elif isinstance(task.predicate,CollaborativePredicate) :
+            if not ((task.predicate.source_agent,task.predicate.target_agent) in self.edges) :
+                self.add_edge(task.predicate.source_agent,task.predicate.target_agent)
+                self.edges[task.predicate.source_agent,task.predicate.target_agent][MANAGER].add_tasks(task)
+            
+            else:
+                self.edges[task.predicate.source_agent,task.predicate.target_agent][MANAGER].add_tasks(task)
+        else :
+            raise ValueError(f"The given preidcate of type {type(task.predicate)} is not supported. Supported predicate types are {CollaborativePredicate.__name__} and {IndependentPredicate.__name__}")
+        
+    def attach(self,tasks:StlTask|list[StlTask]) :
+        """ Attaches a task to the edge of the graph"""
+        if isinstance(tasks,list) :
+            for task in tasks :
+                self._attach_single(task)
+        else :
+            self._attach_single(tasks)
+            
+    def task_list_for_edge(self,u_of_edge, v_of_edge) -> list[StlTask] :
+        """ Returns the list of tasks for the given edge"""
+        return self.edges[u_of_edge, v_of_edge][MANAGER].tasks_list
+            
+
 class CommunicationGraph(nx.Graph) :
     def __init__(self,incoming_graph_data=None, **attr) -> None:
         super().__init__(incoming_graph_data, **attr)

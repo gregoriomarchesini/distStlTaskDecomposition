@@ -5,16 +5,14 @@ import networkx as nx
 import logging
 from typing import Iterable
 import matplotlib.pyplot as plt
-from math import floor
 from tqdm import tqdm
 import contextlib
 import io
 
 
-from stlddec.stl_task import * 
+from stl.stl import * 
 from stlddec.transport import Publisher
 from stlddec.graphs import *
-from stlddec.utils import *
 
 
 
@@ -321,12 +319,12 @@ class EdgeComputingAgent(Publisher) :
         self._parametric_task_count = 0
         self._communication_radius  = 100000                      # practically infinity
         self._warm_start_solution : ca.OptiSol   = None
-        self._use_non_linear_cost     = True
-        self._jit                    = False
+        self._use_non_linear_cost     = False
+        self._jit                    = True
         self._num_iterations      = None
         self._current_iteration   = 0
-        self._learning_rate_0     = 2           # initial value of the learning rate 
-        self._decay_rate          = 0.7         # decay rate of the learning rate (<1)
+        self._learning_rate_0     = 100           # initial value of the learning rate 
+        self._decay_rate          = 0.2         # decay rate of the learning rate (<1)
         
         self._penalty = self._optimizer.variable(1)
         self._optimizer.subject_to(self._penalty>=0)
@@ -459,9 +457,7 @@ class EdgeComputingAgent(Publisher) :
         
         constraints = []
         
-        always_task_containers = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,AlwaysOperator)]        
-        print("From inside compute_overloading_constraints")
-        print(len(self._task_containers))
+        always_task_containers = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,G)]        
         # Check the always intersections between tasks:
         if len(self._task_containers) == 1 :
            print("WTF")
@@ -470,8 +466,6 @@ class EdgeComputingAgent(Publisher) :
         
         # 1) Always intersection constraints.
         always_tasks_combinations : list[tuple[TaskOptiContainer,TaskOptiContainer]] = list(combinations(always_task_containers,2))
-        print("Combination of always tasks")
-        print(len(always_tasks_combinations))
         for container1,container2 in always_tasks_combinations :
             time_intersection = container1.task.temporal_operator.time_interval / container2.task.temporal_operator.time_interval
             if  ( not time_intersection .is_empty()) and (any_parametric([container1,container2])): # there is an intersection
@@ -507,8 +501,8 @@ class EdgeComputingAgent(Publisher) :
     def compute_maximal_sets_intersecting_eventually_tasks(self) -> dict[TaskOptiContainer,set[TaskOptiContainer]]:
         
         # Separate always and eventually tasks.
-        always_task_containers      : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,AlwaysOperator)]
-        eventually_task_containers  : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,EventuallyOperator)]
+        always_task_containers      : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,G)]
+        eventually_task_containers  : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,F)]
         
         if len(eventually_task_containers) == 0:
             return {}
@@ -613,9 +607,9 @@ class EdgeComputingAgent(Publisher) :
                 if self._use_non_linear_cost:
                     cost *= 1/task_container.scale_var
                 else :
-                    cost += -10*task_container.scale_var 
+                    cost += -task_container.scale_var 
             
-        cost += 500*self._penalty # setting cost toward zero
+        cost += 50*self._penalty # setting cost toward zero
         self._optimizer.minimize(cost)
         
         # set up private and shared constraints (also if you don't have constraints this part will be printed)
@@ -1061,7 +1055,7 @@ if __name__== "__main__" :
     i = 3
     j = 2
     A,b = regular_2D_polytope(number_hyperplanes=3,distance_from_center=2)
-    t_operator = AlwaysOperator(time_interval = TimeInterval(a = 0,b = 10))
+    t_operator = G(a = 0,b = 10)
     predicate  = CollaborativePredicate(pc.Polytope(A,b),source_agent_id=i,target_agent_id=j)
     
     task      = StlTask(temporal_operator = t_operator,predicate=predicate)
