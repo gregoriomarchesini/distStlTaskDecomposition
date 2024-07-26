@@ -788,10 +788,10 @@ class IndependentSmoothMinBarrierFunction(BarrierFunction):
         
         
         sum = 0
-        x   = ca.MX.sym("x",2) # assume that the state dimension is 2 for now 
+        x = ca.MX.sym("x",2) # assume that the state dimension is 2 for now 
         t = ca.MX.sym("t")
         for barrier_function in self._list_of_barrier_functions :
-            sum += ca.exp(-self._eta*barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*100/self._eta) ) 
+            sum += ca.exp(-self._eta*barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*100/self._eta)  
             # ^^ each terms becomes very big when the switch function is off and the gradient of that component will be zero because the linear barrier component sets the gradient to zero (using the switch function)
         
         smooth_min_sym      = -ca.log(sum)/self._eta
