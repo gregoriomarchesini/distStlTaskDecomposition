@@ -36,14 +36,16 @@ from    stl.stl import (StlTask,
                         IndependentSmoothMinBarrierFunction,
                         CollaborativeSmoothMinBarrierFunction,
                         IndependentPredicate,CollaborativePredicate, 
-                        create_linear_barriers_from_task)
+                        create_linear_barriers_from_task,
+                        SmoothMinBarrier,        
+                        LinearBarrier,           
+                        CollaborativeBarrierType,
+                        IndependentBarrierType  )
 
 from   .utils import LeadershipToken, NoStdStreams
 from   .optimization_module import BestImpactSolver, WorseImpactSolver
 
 logging.basicConfig(level = logging.INFO, filemode='w', filename='logfile.log')
-SmoothMinBarrier = Union[IndependentSmoothMinBarrierFunction, CollaborativeLinearBarrierFunction]
-LinearBarrier    = Union[IndependentLinearBarrierFunction, CollaborativeLinearBarrierFunction]
 
 
 def get_logger(name:str)-> logging.Logger:
@@ -491,7 +493,7 @@ class STLController(Publisher):
             self._gamma_tilde[neighbour] = gamma_tilde
                         
     
-    def _compute_gamma_tilde_for_barrier(self,barrier: CollaborativeLinearBarrierFunction | CollaborativeSmoothMinBarrierFunction , agents_states :dict[int,np.ndarray],current_time: float) -> float :
+    def _compute_gamma_tilde_for_barrier(self,barrier: CollaborativeBarrierType , agents_states :dict[int,np.ndarray],current_time: float) -> float :
         
         # NOTE: This function should only be called when the barrier neighbour is among the leader neighbours
         
@@ -521,8 +523,10 @@ class STLController(Publisher):
         barrier_value   = barrier.compute(x_source = agents_states[barrier.source_agent],
                                           x_target = agents_states[barrier.target_agent],
                                           t        = current_time)
-        self._logger.info(f"value of the gradient is {nabla_xi}")    
-        self._logger.info(f"value of the barrier is {barrier_value}")
+        self._logger.info(f"Gradient for the barrier {(barrier.source_agent,barrier.target_agent)} :  {nabla_xi}")    
+        self._logger.info(f"Value of the barrier {(barrier.source_agent,barrier.target_agent)} : {barrier_value}")
+        self._logger.info(f"Current state of the agent {self._unique_identifier} : {current_agent_state}")
+        self._logger.info(f"Current state of neighbour {barrier.source_agent} : {agents_states[barrier.source_agent]}")
         
         
         if np.linalg.norm(nabla_xi) <= 1E-6 : # case when the gradient is practically zero
@@ -603,8 +607,12 @@ class STLController(Publisher):
         # this can be parallelised for each of the barrier you are a follower of
         Lg = nabla_xi @ g_value
         Lf = nabla_xi @ f_value
-        best_impact = self._best_impact_solver.compute(Lg).full()
-        self._best_impact_on_follower   = Lf + Lg @ best_impact*self._gamma  
+        
+        if np.linalg.norm(Lg) <= 1E-6 :
+            self._best_impact_on_follower = Lf
+        else :
+            best_impact = self._best_impact_solver.compute(Lg).full()
+            self._best_impact_on_follower   = Lf + Lg @ best_impact*self._gamma  
         
         event = "best_impact"
         self.notify(event)  
@@ -637,7 +645,7 @@ class STLController(Publisher):
         if self._follower_neighbour != None:
             self._optimizer.set_value(self._params["worse_impact_from_follower"],self._worse_impact_from_follower)
 
-        
+        failed_computation = False
         if self._warm_start_sol == None    :
             try :
                 sol = self._optimizer.solve()
@@ -647,6 +655,7 @@ class STLController(Publisher):
                 print(f"Agent {self._unique_identifier} Primary Controller Failed !")
                 self._logger.error(f"Primary controller failed with the following message")
                 self._logger.error(e1, exc_info=True)
+                failed_computation = True
                 
         else :
             try :
@@ -659,6 +668,7 @@ class STLController(Publisher):
                 print(f"Agent {self._unique_identifier} Primary Controller Failed !")
                 self._logger.error(f"Primary controller failed with the following message")
                 self._logger.error(e2, exc_info=True)
+                failed_computation = True
         
         # flushing old information
         self._best_impact_from_leaders              = {unique_identifier : None for unique_identifier in self._leader_neighbours} 
@@ -668,7 +678,11 @@ class STLController(Publisher):
         self._worse_impact_on_leaders_stored_lambda = {unique_identifier : None for unique_identifier in self._leader_neighbours}  
         self._worse_impact_on_leaders               = {unique_identifier : None for unique_identifier in self._leader_neighbours}
         
-        return sol.value(self._control_input_var)
+        if failed_computation:
+            failed_computation = False
+            return np.zeros((2,1))
+        else :
+            return sol.value(self._control_input_var)
     
     
     def get_closest_state(self,agents_states:dict[int,np.ndarray]) -> np.ndarray:

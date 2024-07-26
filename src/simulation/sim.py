@@ -108,39 +108,41 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:int) -> No
     
 
     # Start simulation (sequential).
-    for _ in tqdm(range(number_of_steps)):
-        
-        for agent_id in multi_agent_system.agents_models.keys():
-                    state_history[agent_id] += [multi_agent_system.agents_states[agent_id].flatten()]
-         
-        try :
-            logger.info(f"New round")
-            for rounds in range(int(nx.diameter(multi_agent_system.task_graph)/2)+1):
-                
-                for agent_id,controller in controllers.items():
-                    controller.compute_gamma_tilde_values(current_time = multi_agent_system.current_time, 
-                                                        agents_state = multi_agent_system.agents_states)
-                
-                for agent_id,controller in controllers.items():
-                    if controller.is_ready_to_compute_gamma:
-                        controller.compute_gamma()
-                        controller.compute_best_impact_for_follower(agents_states=multi_agent_system.agents_states,
-                                                                    current_time = multi_agent_system.current_time)
-                        controller.compute_worse_impact_for_leaders()
-        except Exception as e:
-            print(format_exc())
-            break   
-        
-        inputs_per_agent = dict()
-        # after this deterministic number of rounds everyone has all the information required to compute its control input
-        for agent_id,controller in controllers.items():
-            inputs_per_agent[agent_id] = controller.compute_control_input(current_states = multi_agent_system.agents_states, 
-                                                                        current_time   = multi_agent_system.current_time)
+    with tqdm(total=number_of_steps) as pbar:
+        for _ in tqdm(range(number_of_steps)):
             
-        for agent_id,model in multi_agent_system.agents_models.items():
-            multi_agent_system.agents_states[agent_id] = model.step_fun(multi_agent_system.agents_states[agent_id],inputs_per_agent[agent_id]).full()
-        multi_agent_system.current_time += time_step
-    
+            for agent_id in multi_agent_system.agents_models.keys():
+                        state_history[agent_id] += [multi_agent_system.agents_states[agent_id].flatten()]
+            
+            try :
+                logger.info(f"New round, Time : {multi_agent_system.current_time}")
+                for rounds in range(int(nx.diameter(multi_agent_system.task_graph)/2)+1):
+                    
+                    for agent_id,controller in controllers.items():
+                        controller.compute_gamma_tilde_values(current_time = multi_agent_system.current_time, 
+                                                            agents_state = multi_agent_system.agents_states)
+                    
+                    for agent_id,controller in controllers.items():
+                        if controller.is_ready_to_compute_gamma:
+                            controller.compute_gamma()
+                            controller.compute_best_impact_for_follower(agents_states=multi_agent_system.agents_states,
+                                                                        current_time = multi_agent_system.current_time)
+                            controller.compute_worse_impact_for_leaders()
+            except Exception as e:
+                print(format_exc())
+                break   
+            
+            
+            inputs_per_agent = dict()
+            # after this deterministic number of rounds everyone has all the information required to compute its control input
+            for agent_id,controller in controllers.items():
+                inputs_per_agent[agent_id] = controller.compute_control_input(current_states = multi_agent_system.agents_states, 
+                                                                            current_time   = multi_agent_system.current_time)
+                
+            for agent_id,model in multi_agent_system.agents_models.items():
+                multi_agent_system.agents_states[agent_id] = model.step_fun(multi_agent_system.agents_states[agent_id],inputs_per_agent[agent_id]).full()
+            multi_agent_system.current_time += time_step
+            pbar.set_description(f"Time elapsed in simulation: {multi_agent_system.current_time:.2f}s")
     
     fig, ax = plt.subplots()
     counter = 1

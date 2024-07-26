@@ -1,7 +1,7 @@
 import numpy as np
 import casadi as ca
 import polytope as pc
-from   typing import TypeAlias
+from   typing import TypeAlias, Union
 from   abc import ABC, abstractmethod
 import logging
 import sys
@@ -10,6 +10,10 @@ import matplotlib.pyplot as plt
 np.random.seed(100)
 
 UniqueIdentifier : TypeAlias = int #Identifier of a single agent in the system
+SmoothMinBarrier         = Union["IndependentSmoothMinBarrierFunction", "CollaborativeLinearBarrierFunction"]
+LinearBarrier            = Union["IndependentLinearBarrierFunction", "CollaborativeLinearBarrierFunction"]
+CollaborativeBarrierType = Union["CollaborativeLinearBarrierFunction","CollaborativeSmoothMinBarrierFunction"]
+IndependentBarrierType   = Union["IndependentLinearBarrierFunction","IndependentSmoothMinBarrierFunction"]
 
 # Temporal Operators 
 class TimeInterval :
@@ -207,7 +211,6 @@ class F(TemporalOperator):
         except Exception as e:
             raise ValueError("There was error constructing the temporal operator. The raised exception is : " + str(e))
         super().__init__(time_interval)
-        self._time_of_remotion    : float        = self._time_of_satisfaction
         self._time_of_satisfaction = time_interval.a + np.random.rand()*(time_interval.b- time_interval.a)
         self._time_of_remotion     = self._time_of_satisfaction
         
@@ -747,9 +750,10 @@ class IndependentLinearBarrierFunction(BarrierFunction):
         self._z = z
         self._gamma_function = gamma_function
         self._switch_function = switch_function
+        self._agent_id = agent_id
     
     
-    
+
     def compute(self,x: np.ndarray | ca.MX | ca.SX | ca.DM, 
                      t: float | ca.MX | ca.SX | ca.DM) -> float| ca.MX | ca.SX | ca.DM:
         
@@ -771,6 +775,11 @@ class IndependentSmoothMinBarrierFunction(BarrierFunction):
         self._list_of_barrier_functions = list_of_barrier_functions
         if eta<= 0 :
             raise ValueError("The smoothing parameter eta must be a positive number")
+        
+        for barrier_function in list_of_barrier_functions :
+            if not isinstance(barrier_function,IndependentLinearBarrierFunction) :
+                raise ValueError(f"The input list of barrier functions should of type {IndependentLinearBarrierFunction.__name__}. Found input of type {type(barrier_function)}")
+            
         self._eta = eta
         self._smooth_min, self._gradient, self._time_derivative = self._create_smooth_min_function()
         
@@ -782,9 +791,8 @@ class IndependentSmoothMinBarrierFunction(BarrierFunction):
         x   = ca.MX.sym("x",2) # assume that the state dimension is 2 for now 
         t = ca.MX.sym("t")
         for barrier_function in self._list_of_barrier_functions :
-            if not isinstance(barrier_function,IndependentLinearBarrierFunction) :
-                raise ValueError(f"The input list of barrier functions should of type {IndependentLinearBarrierFunction.__name__}. Found input of type {type(barrier_function)}")
-            sum += ca.exp(-self._eta*barrier_function.compute(x,t))
+            sum += ca.exp(-self._eta*barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*100/self._eta) ) 
+            # ^^ each terms becomes very big when the switch function is off and the gradient of that component will be zero because the linear barrier component sets the gradient to zero (using the switch function)
         
         smooth_min_sym      = -ca.log(sum)/self._eta
         smooth_min_fun      = ca.Function("smooth_min",[x,t],[smooth_min_sym])
@@ -801,20 +809,7 @@ class IndependentSmoothMinBarrierFunction(BarrierFunction):
     
     def time_derivative_at_time(self,  x: np.ndarray | ca.MX | ca.SX | ca.DM, t: float | ca.MX | ca.SX | ca.DM) -> float| ca.MX | ca.SX | ca.DM:
         return self._time_derivative(x,t)
-    
-    def plot(self,ax,t) :
-        x = np.linspace(-2,2,100)
-        y = np.linspace(-2,2,100)
-        X,Y = np.meshgrid(x,y)
-        Z = np.zeros_like(X)
-        for i in range(X.shape[0]) :
-            for j in range(X.shape[1]) :
-                try :
-                    Z[i,j] = self.compute(np.array([[X[i,j]],[Y[i,j]]]),t)
-                except :
-                    raise NotImplementedError("plotting only allowed for 2D states")
-        
-        ax.contourf(X,Y,Z)
+
 
 class CollaborativeSmoothMinBarrierFunction(BarrierFunction):
     def __init__(self, list_of_barrier_functions: list[CollaborativeLinearBarrierFunction],eta:float = 1) -> None:
@@ -858,12 +853,14 @@ class CollaborativeSmoothMinBarrierFunction(BarrierFunction):
         x_target   = ca.MX.sym("x",2) # assume that the state dimension is 2 for now
         t          = ca.MX.sym("t")
         
-        for barrier_function in self._list_of_barrier_functions :
-            sum += ca.exp(-self._eta*barrier_function.compute(x_source=x_source,x_target=x_target,t=t))
         
-        smooth_min_sym      = -ca.log(sum)/self._eta
+        for barrier_function in self._list_of_barrier_functions :
+            sum += ca.exp(-self._eta* ( barrier_function.compute(x_source=x_source,x_target=x_target,t=t)  + (1.-barrier_function._switch_function.compute(t))*100/self._eta) ) 
+            # ^^ each terms becomes very big when the switch function is off and the gradient of that component will be zero because the linear barrier component sets the gradient to zero (using the switch function)
+        
+        smooth_min_sym      = -1/self._eta * ca.log(sum)
         smooth_min_fun      = ca.Function("smooth_min",[x_source,x_target,t],[smooth_min_sym])
-        gradient_fun        = ca.Function("smooth_min_gradient",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,x_target)])
+        gradient_fun        = ca.Function("smooth_min_gradient",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,x_source)]) 
         time_derivative_fun = ca.Function("smooth_min_time_derivative",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,t)])
         
         return smooth_min_fun, gradient_fun, time_derivative_fun
@@ -896,22 +893,7 @@ class CollaborativeSmoothMinBarrierFunction(BarrierFunction):
                                      x_target: np.ndarray | ca.MX | ca.SX | ca.DM, 
                                      t: float | ca.MX | ca.SX | ca.DM):
         return self._time_derivative(x_source,x_target,t) # the time derivative of the barrier function is the time derivative of the gamma function
-
-    def plot(self,ax,t,min_x:float, max_x:float) :
-        x = np.linspace(min_x,max_x,100)
-        y = np.linspace(min_x,max_x,100)
-        X,Y = np.meshgrid(x,y)
-        Z = np.zeros_like(X)
-        for i in range(X.shape[0]) :
-            for j in range(X.shape[1]) :
-                try :
-                   Z[i,j] = self.compute(x_source=np.array([[X[i,j]],[Y[i,j]]]),
-                                         x_target=np.zeros((2,1)) ,
-                                         t=t)
-                except :
-                    raise NotImplementedError("plotting only allowed for 2D states")
-        
-        ax.contourf(X,Y,Z,cmap=plt.cm.bone)
+    
 
 def create_linear_barriers_from_task(task : StlTask, initial_conditions : dict[UniqueIdentifier,np.ndarray], t_init : float = 0 , maximum_control_input_norm : float = 1E5) -> list[BarrierFunction]:
     """
@@ -1033,8 +1015,8 @@ def make_initial_conditions_a_column(initial_conditions:dict[UniqueIdentifier,np
     return initial_conditions
 
 
-#todo : clean
-def plot_contour(smooth_min ,ax : None,t):
+#todo : clean up the funciton here
+def plot_contour(smooth_min :CollaborativeBarrierType | IndependentBarrierType  ,ax : None,t):
     x = np.linspace(-8,8,100)
     y = np.linspace(-8,8,100)
     X,Y = np.meshgrid(x,y)
@@ -1048,3 +1030,4 @@ def plot_contour(smooth_min ,ax : None,t):
             except :
                 raise NotImplementedError("plotting only allowed for 2D states")
     return ax.contourf(X,Y,Z,cmap=plt.cm.bone)
+
