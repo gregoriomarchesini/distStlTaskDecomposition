@@ -176,7 +176,7 @@ class STLController(Publisher):
         self._worse_impact_solver = WorseImpactSolver(model = dynamical_model)
         
         scalar = ca.MX.sym("scalar",1)
-        self._alpha_fun = ca.Function("alpha_fun",[scalar],[scalar])
+        self._alpha_fun = ca.Function("alpha_fun",[scalar],[2*scalar])
         
         # check if tasks are given to this controller
         self._has_tasks                 = False
@@ -189,6 +189,7 @@ class STLController(Publisher):
             self.add_topic(topic)
         
         self._logger = get_logger(f"Controller {self._unique_identifier}")
+
     
     #exposed attributes according to main abstract class
     @property
@@ -289,6 +290,7 @@ class STLController(Publisher):
         # Save all the leader neighbours
         leader_neighbours  = []
         follower_neighbour = None
+        self._logger.info(f"Recorded Follower neighbour : {follower_neighbour}")
         
         for unique_identifier,token in leadership_tokens.items() :
             if token == LeadershipToken.UNDEFINED :
@@ -535,7 +537,7 @@ class STLController(Publisher):
         self._logger.info(f"Gradient for the barrier {(barrier.source_agent,barrier.target_agent)} :  {nabla_xi}")    
         self._logger.info(f"Value of the barrier {(barrier.source_agent,barrier.target_agent)} : {barrier_value}")
         self._logger.info(f"Current state of the agent {self._unique_identifier} : {current_agent_state}")
-        self._logger.info(f"Current state of neighbour {barrier.source_agent} : {agents_states[barrier.source_agent]}")
+        self._logger.info(f"Current state of neighbour {neighbour_id} : {agents_states[neighbour_id]}")
         
         
         if np.linalg.norm(nabla_xi) <= 1E-6 : # case when the gradient is practically zero
@@ -639,8 +641,9 @@ class STLController(Publisher):
     def compute_control_input(self, current_states:dict[int,np.ndarray], current_time: float) -> np.ndarray:
         
         # to be adapted when dealing with real time implementation
-        if self._worse_impact_from_follower == None and self._follower_neighbour != None:
-            self._logger.error(f"The worse impact from the follower is not computed.")
+        if (self._worse_impact_from_follower == None) and self._follower_neighbour != None:
+            self._logger.error(f"The worse impact from the follower is not computed. Follower neighbour is {self._follower_neighbour}")
+            
             raise RuntimeError(f"The worse impact from the follower is not computed.")
         
         

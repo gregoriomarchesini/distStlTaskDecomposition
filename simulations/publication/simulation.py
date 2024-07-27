@@ -10,12 +10,10 @@ from stlddec.decomposition import run_task_decomposition
 
 # set seeds for replication
 np.random.seed(100)
-logging.basicConfig(level=logging.INFO)
 
 ###########################################################################################
 ########################      Task Graph     ##############################################
 ###########################################################################################
-
 
 
 task_graph = TaskGraph()
@@ -92,15 +90,14 @@ show_graphs(comm_graph,task_graph, titles=["Communication Graph","Task Graph",])
 new_task_graph, edge_computing_graph = run_task_decomposition(communication_graph               = comm_graph, 
                                                               task_graph                        = task_graph,
                                                               number_of_optimization_iterations = 10, 
-                                                              communication_radius              = 4,
-                                                              logger_level                      = "ERROR")
+                                                              communication_radius              = 4)
 
 
 centers = np.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),"centers.npy"))
 
 # Create some initial conditions 
 agents_state  = {jj+1: centers[jj] for jj in range(centers.shape[0])}
-agents_models = {jj+1: SingleIntegrator2D(max_velocity = 3., unique_identifier = jj+1) for jj in range(centers.shape[0])}
+agents_models = {jj+1: SingleIntegrator2D(max_velocity = 1., unique_identifier = jj+1) for jj in range(centers.shape[0])}
 
 
 show_graphs(comm_graph, new_task_graph, titles=["Communication Graph","Task Graph"])

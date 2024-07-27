@@ -2,6 +2,8 @@
 .venv
 .vscode
 
-# do not include log files or pycache
+# do not include log files of jit 
 *.log
 __pycache__
+jit_*
+tmp_*
