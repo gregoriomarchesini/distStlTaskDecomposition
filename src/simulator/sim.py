@@ -46,20 +46,23 @@ class MultiAgentSystem:
     communication_graph : CommunicationGraph
     agents_states       : dict[int,np.ndarray]
     agents_models       : dict[int,DynamicalModel]
-    current_time        : float = 0
+    current_time        : float = 0.
     
     def __post_init__(self):
         
         if set(self.agents_states.keys()) != set(self.agents_models.keys()):
-            raise ValueError("The keys of the agents_states and agents_models dictionaries must be the same")
+            raise ValueError(f"The keys of the agents_states and agents_models dictionaries must be the same. Agents in agents states are {list(self.agents_states.keys())} and agents in agents models are {list(self.agents_models.keys())}")
         if set(self.agents_states.keys()) != set(self.communication_graph.nodes):
-            raise ValueError("The keys of the agents_states and communication_graph dictionaries must be the same")
+            raise ValueError(f"The keys of the agents_states and communication_graph dictionaries must be the same. Nodes in the commmunicaton graph are {list(self.communication_graph.nodes)} and keys in the agents_states are {list(self.agents_states.keys())}")
+        if set(self.agents_states.keys()) != set(self.task_graph.nodes):
+            raise ValueError(f"The keys of the agents_states and task_graph dictionaries must be the same. Nodes in the task graph are {list(self.task_graph.nodes)} and keys in the agents_states are {list(self.agents_states.keys())}")
+        if set(self.task_graph.nodes) != set(self.communication_graph.nodes):
+            raise ValueError(f"The keys of the task_graph and communication_graph dictionaries must be the same. Nodes in the task graph are {list(self.task_graph.nodes)} and nodes in the communication graph are {list(self.communication_graph.nodes)}")
 
 
-
-def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:int) -> None:
+def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> None:
     
-    
+    print("============================ Starting Simulation =================================")
     state_history = {unique_identifier : [] for unique_identifier in multi_agent_system.agents_states.keys()}
     time_step = DynamicalModel._time_step
     number_of_steps = int(final_time/time_step)
@@ -75,10 +78,10 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:int) -> No
         
     # Collect all the tasks for each agent.
     tasks_per_agent = {i:[] for i in multi_agent_system.agents_states.keys()}
+    print("Recorganissed edges in the task graph")
     for i,j in multi_agent_system.task_graph.edges:
-        print(i,j)
         stl_tasks = multi_agent_system.task_graph.task_list_for_edge(i,j)
-        
+        print(f"Edge {(i,j)}")
         
         if i!=j :
             tasks_per_agent[i] += stl_tasks
@@ -109,25 +112,31 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:int) -> No
 
     # Start simulation (sequential).
     with tqdm(total=number_of_steps) as pbar:
-        for _ in tqdm(range(number_of_steps)):
+        for _ in range(number_of_steps):
             
             for agent_id in multi_agent_system.agents_models.keys():
                         state_history[agent_id] += [multi_agent_system.agents_states[agent_id].flatten()]
             
             try :
                 logger.info(f"New round, Time : {multi_agent_system.current_time}")
+                undone_controllers = controllers.copy()
+                
                 for rounds in range(int(nx.diameter(multi_agent_system.task_graph)/2)+1):
                     
-                    for agent_id,controller in controllers.items():
+                    for agent_id,controller in undone_controllers.items():
                         controller.compute_gamma_tilde_values(current_time = multi_agent_system.current_time, 
                                                             agents_state = multi_agent_system.agents_states)
-                    
-                    for agent_id,controller in controllers.items():
+                    done_controllers = []
+                    for agent_id,controller in undone_controllers.items():
                         if controller.is_ready_to_compute_gamma:
                             controller.compute_gamma()
                             controller.compute_best_impact_for_follower(agents_states=multi_agent_system.agents_states,
                                                                         current_time = multi_agent_system.current_time)
                             controller.compute_worse_impact_for_leaders()
+                            done_controllers += [agent_id]
+                    for agent_id in done_controllers:
+                        undone_controllers.pop(agent_id)
+                    
             except Exception as e:
                 print(format_exc())
                 break   
@@ -142,7 +151,8 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:int) -> No
             for agent_id,model in multi_agent_system.agents_models.items():
                 multi_agent_system.agents_states[agent_id] = model.step_fun(multi_agent_system.agents_states[agent_id],inputs_per_agent[agent_id]).full()
             multi_agent_system.current_time += time_step
-            pbar.set_description(f"Time elapsed in simulation: {multi_agent_system.current_time:.2f}s")
+            pbar.update(1)
+            pbar.set_description(f"Time elapsed in simulation: {multi_agent_system.current_time:.2f}/{final_time:.2f}s")
     
     fig, ax = plt.subplots()
     counter = 1

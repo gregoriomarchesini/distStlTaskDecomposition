@@ -3,9 +3,11 @@ import casadi as ca
 import polytope as pc
 from   typing import TypeAlias, Union
 from   abc import ABC, abstractmethod
-import logging
 import sys
 import matplotlib.pyplot as plt
+
+from loggers.loggers import get_logger
+
 
 np.random.seed(100)
 
@@ -168,7 +170,7 @@ class TemporalOperator(ABC):
     def time_interval(self) -> TimeInterval:
         return self._time_interval
     
-    def __rshift__(self, predicate : "PolytopicPredicate") -> "StlTask":
+    def __matmul__(self, predicate : "PolytopicPredicate") -> "StlTask":
         
         return StlTask(temporal_operator = self, predicate = predicate)
 
@@ -562,29 +564,6 @@ def normal_form(A : np.ndarray,b : np.ndarray) :
     return A,b
         
 
-
-def get_logger(name:str, level=logging.INFO, output_file:str=None)-> logging.Logger:
-    
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    logger    =  logging.getLogger(name)
-    
-   
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    if output_file is not None:
-        file_handler = logging.FileHandler(output_file + ".log")
-        file_handler.setLevel(level)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
-    
-    return logger
-    
-
-
 class GammaFunction():
     def __init__(self, gamma_0:float , time_flattening: float, t_0 :float  ) -> None:
         """ gamma_0 + gamma_0/ (t_0 - t_flattening) (t-t_0) : -> linear decaying time function"""
@@ -860,7 +839,7 @@ class CollaborativeSmoothMinBarrierFunction(BarrierFunction):
         
         smooth_min_sym      = -1/self._eta * ca.log(sum)
         smooth_min_fun      = ca.Function("smooth_min",[x_source,x_target,t],[smooth_min_sym])
-        gradient_fun        = ca.Function("smooth_min_gradient",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,x_source)]) 
+        gradient_fun        = ca.Function("smooth_min_gradient",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,x_target)]) 
         time_derivative_fun = ca.Function("smooth_min_time_derivative",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,t)])
         
         return smooth_min_fun, gradient_fun, time_derivative_fun

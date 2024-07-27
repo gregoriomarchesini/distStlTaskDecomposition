@@ -28,7 +28,7 @@ from   typing import Callable,Union
 import logging
 from   abc import ABC,abstractmethod
 
-
+from   loggers.loggers import get_logger
 from    stl.dynamics import DynamicalModel
 from    stl.stl import (StlTask,
                         IndependentLinearBarrierFunction,
@@ -44,14 +44,6 @@ from    stl.stl import (StlTask,
 
 from   .utils import LeadershipToken, NoStdStreams
 from   .optimization_module import BestImpactSolver, WorseImpactSolver
-
-logging.basicConfig(level = logging.INFO, filemode='w', filename='logfile.log')
-
-
-def get_logger(name:str)-> logging.Logger:
-    logger = logging.getLogger(name)
-    return logger
-
 
 
 # Just a standard publisher class
@@ -271,9 +263,26 @@ class STLController(Publisher):
         cost  = self._control_input_var.T @  self._control_input_var # classic quadratic cost (work for simple integrator types of system)
         cost += ca.vertcat(*self._slack_vars).T @ ca.vertcat(*self._slack_vars) # add slack variables to the cost
         
-        nlp_option = {"ipopt.print_level":0,"print_time":0}
+        
+        
+        # Problem options
+        p_opts = dict(print_time=False, 
+                    verbose=False,
+                    expand=True,
+                    compiler='shell',
+                    jit=True,  # Enable JIT compilation
+                    jit_options={"flags": '-O3', "verbose": True, "compiler": 'gcc'})  # Specify the compiler (optional, default is gcc))
+
+        
+        # Solver options
+        s_opts = dict(
+            print_level=0,
+            tol=1e-6,
+            max_iter=1000,
+            )
+        
         self._optimizer.minimize(cost)
-        self._optimizer.solver("ipopt",nlp_option)
+        self._optimizer.solver("ipopt",p_opts,s_opts)
        
     def get_leader_and_follower_neighbours(self,leadership_tokens: dict[int,LeadershipToken]) -> tuple[list[int],int]:
         

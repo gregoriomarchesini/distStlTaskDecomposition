@@ -1,7 +1,6 @@
-import casadi as ca
-import numpy as np
+from stlddec.decomposition import TaskOptiContainer, powerset
+from stlddec.decomposition import TimeInterval,TemporalOperator
 
-a = np.eye(3)
-print(a)
-a = ca.DM(a)
-print(a)
+
+a = set({1,2,3,4})
+print(powerset(a))

@@ -8,7 +8,7 @@ import stl.stl        as pmod
 import stlddec.graphs as gmod
 import stl.dynamics   as dyn
 
-from simulation.sim import MultiAgentSystem, simulate_agents 
+from simulator.sim import MultiAgentSystem, simulate_agents 
 
 
 np.random.seed(100)
@@ -28,7 +28,7 @@ predicate    = pmod.CollaborativePredicate( polytope_0=  polytope,
                                             center=np.array([-5,-5]),
                                             source_agent_id=1,
                                             target_agent_id=2)
-task  = pmod.G(5,10) >> predicate
+task  = pmod.G(5,10) @ predicate
 task_graph.attach(task)
     
 
@@ -39,7 +39,7 @@ predicate    = pmod.CollaborativePredicate( polytope_0=  polytope,
                                            center=np.array([5,-5]),
                                            source_agent_id=3,
                                            target_agent_id=2)
-task  = pmod.G(5,10) >> predicate
+task  = pmod.G(5,10) @ predicate
 task_graph.attach(task)
 
 
@@ -51,7 +51,7 @@ predicate    = pmod.CollaborativePredicate( polytope_0=  polytope,
                                            center=np.array([1,0]),
                                            source_agent_id=3,
                                            target_agent_id=2)
-task  = pmod.F(20,30) >> predicate
+task  = pmod.F(20,30) @ predicate
 task_graph.attach(task)
 
 

@@ -7,14 +7,18 @@ import stlddec.decomposition as dmod
 import networkx as nx
 import random
 
+# fix the seeds for repeatability
 np.random.seed(100)
 random.seed(100)
 
+##################################################################################################################
+############################################ TASK CREATION #######################################################
+##################################################################################################################
+# Creates a regular communication and task graph in terms of a formation of agents.
+# The task graph will be empty as it is but you will know to which tasks you can attach tasks.
 
 
-comm_graph, task_graph,regular_positions = gmod.get_regular_polytopic_star_graph(num_vertices = 3,num_polygones=5,inter_ring_distance=9)
-
-# ------ adding some tasks at random -------- 
+comm_graph, task_graph,regular_positions = gmod.get_regular_polytopic_tree_graph(num_vertices = 3,num_polygones=5,inter_ring_distance=9)
 tasking_percentage = 0.2
 edges_to_be_tasked = random.sample( list(task_graph.edges), int(len(task_graph.edges)*tasking_percentage) )
 

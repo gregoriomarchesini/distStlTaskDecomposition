@@ -1,8 +1,7 @@
 import networkx as nx
-from   typing import TypeVar
-from   enum import Enum
-import multiprocessing as mp
+from   typing import Union
 import numpy as np
+import matplotlib.pyplot as plt
 
 from   stl.stl import StlTask, CollaborativePredicate, IndependentPredicate
 
@@ -22,32 +21,30 @@ class TaskGraph(nx.Graph) :
     def __init__(self,incoming_graph_data=None, **attr) -> None:
         super().__init__(incoming_graph_data, **attr)
     
-    def add_edge(self,u_of_edge, v_of_edge, **attr) :
-        """ Adds an edge to the graph."""
-        super().add_edge(u_of_edge, v_of_edge, **attr)
-        self[u_of_edge][v_of_edge][MANAGER] = EdgeTaskManager(edge_i = u_of_edge,edge_j = v_of_edge)
+    def add_edge(self,u_of_edge, v_of_edge) :
+        """ Adds an edge to the graph if it is not already present"""
+        if not (u_of_edge,v_of_edge) in self.edges :
+            super().add_edge(u_of_edge, v_of_edge)
+            self[u_of_edge][v_of_edge][MANAGER] = EdgeTaskManager(edge_i = u_of_edge,edge_j = v_of_edge)
+    
+    def add_edges_from(self, ebunch_to_add) :
+        """ Adds multiple edges to the graph."""
+        for edge in ebunch_to_add :
+            self.add_edge(edge[0],edge[1])
     
     def _attach_single(self,task: StlTask) :
         """ Attaches a task to the edge of the graph"""
         if not isinstance(task,StlTask) :
             raise ValueError("The task must be a StlTask object")
         
-        
         if isinstance(task.predicate,IndependentPredicate) :
-            if not ((task.predicate.agent_id,task.predicate.agent_id) in self.edges) :
-                
-                self.add_edge(task.predicate.agent_id,task.predicate.agent_id)
-                self.edges[task.predicate.agent_id,task.predicate.agent_id][MANAGER].add_tasks(task)
-            else :
-                self.edges[task.predicate.agent_id,task.predicate.agent_id][MANAGER].add_tasks(task)
-        
-        elif isinstance(task.predicate,CollaborativePredicate) :
-            if not ((task.predicate.source_agent,task.predicate.target_agent) in self.edges) :
-                self.add_edge(task.predicate.source_agent,task.predicate.target_agent)
-                self.edges[task.predicate.source_agent,task.predicate.target_agent][MANAGER].add_tasks(task)
+            self.add_edge(task.predicate.agent_id,task.predicate.agent_id) # it will add the edge if not present
+            self.edges[task.predicate.agent_id,task.predicate.agent_id][MANAGER].add_tasks(task)
             
-            else:
-                self.edges[task.predicate.source_agent,task.predicate.target_agent][MANAGER].add_tasks(task)
+        elif isinstance(task.predicate,CollaborativePredicate) :
+            self.add_edge(task.predicate.source_agent,task.predicate.target_agent) # it will add the edge if not present
+            self.edges[task.predicate.source_agent,task.predicate.target_agent][MANAGER].add_tasks(task)
+            
         else :
             raise ValueError(f"The given preidcate of type {type(task.predicate)} is not supported. Supported predicate types are {CollaborativePredicate.__name__} and {IndependentPredicate.__name__}")
         
@@ -180,17 +177,18 @@ def create_communication_graph_from_edges(edges : list[tuple[int,int]],add_task_
     
     return G
 
-def normalize_graphs(comm_graph:CommunicationGraph, task_graph:TaskGraph) -> tuple[CommunicationGraph,TaskGraph]:
+def normalize_graphs(*graphs : Union[CommunicationGraph,TaskGraph]) -> tuple[CommunicationGraph,TaskGraph]:
     """ Makes sure that both graphs have the number of edges"""
-    nodes = set(comm_graph.nodes).union(set(task_graph.nodes))
     
-    for node in nodes :
-        if node not in comm_graph.nodes :
-            comm_graph.add_node(node)
     
-    return comm_graph,task_graph
-
-
+    nodes = set()
+    for graph in graphs :
+        nodes.union(set(graph.nodes))
+    
+    for graph in graphs :
+      graph.add_nodes_from(nodes)
+    
+    return graphs
 
 def create_task_graph_by_breaking_the_edges(communication_graph:CommunicationGraph,broken_edges:list[tuple[int,int]]) -> TaskGraph:
     """ Breaks the communication between the given edges. The edges are assumed to be undirected. The graph is not copied by the functions so
@@ -232,7 +230,7 @@ def clean_task_graph(task_graph:TaskGraph) -> TaskGraph:
     return task_graph
 
 
-def get_regular_polytopic_star_graph(num_vertices : int, num_polygones : int, inter_ring_distance:float = 9)-> tuple[CommunicationGraph,TaskGraph, dict[int,np.ndarray]]:
+def get_regular_polytopic_tree_graph(num_vertices : int, num_polygones : int, inter_ring_distance:float = 9)-> tuple[CommunicationGraph,TaskGraph, dict[int,np.ndarray]]:
     """
     
     Create a star communication graph and a concenstric ring task graph. The number of vertices defined the shape of the concentric
@@ -308,3 +306,19 @@ def get_regular_polytopic_star_graph(num_vertices : int, num_polygones : int, in
     comm_graph, task_graph = normalize_graphs(comm_graph,task_graph) # this can be used to get the same nodes in both graph without specifying all of them.
 
     return comm_graph, task_graph, pos
+
+
+def show_graphs(*graphs, titles:list[str] = []) :
+    """ Plots the graphs"""
+
+    if not len(titles) == len(graphs) :
+        raise ValueError("The number of labels must be equal to the number of graphs")
+    
+    random_n = lambda : 0.5-np.random.rand()
+    pos = nx.spring_layout(graphs[0])
+    pos = {k: np.array([pos[k][0]*(1.+random_n()),pos[k][1]*(1.+random_n())]) for k in pos.keys()}
+    fig,axs = plt.subplots(1,len(graphs),figsize=(15,5)) 
+    
+    for i,graph in enumerate(graphs) :
+        nx.draw(graph,with_labels=True,ax= axs[i],pos=pos)
+        axs[i].set_title(titles[i])

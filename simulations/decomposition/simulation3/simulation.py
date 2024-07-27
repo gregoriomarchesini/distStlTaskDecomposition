@@ -11,7 +11,7 @@ np.random.seed(100)
 random.seed(100)
 
 
-comm_graph, task_graph,regular_positions = gmod.get_regular_polytopic_star_graph(num_vertices = 4,num_polygones=3,inter_ring_distance=9)
+comm_graph, task_graph,regular_positions = gmod.get_regular_polytopic_tree_graph(num_vertices = 4,num_polygones=3,inter_ring_distance=9)
 
 # ------ adding some tasks at random -------- 
 tasking_percentage = 0.5
