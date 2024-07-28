@@ -285,9 +285,9 @@ def any_parametric( iterable:Iterable[TaskOptiContainer] ) -> bool :
     return any([task_container.task.is_parametric for task_container in iterable])
 
     
-LEARNING_RATE_0          = 0.01  # higher value : increases learning speed bu gives rise to jittering
-DECAY_RATE               = 0.1  # higher value : decreases learning speed 
-PENALTY_COST_COEFFICIENT = 15   # higher value : increases the penalty cost facilitating convergence but to high value can give poor solutions as strict feasibility would be enforced
+LEARNING_RATE_0          = 0.3  # higher value : increases learning speed bu gives rise to jittering
+DECAY_RATE               = 0.7  # higher value : decreases learning speed 
+PENALTY_COST_COEFFICIENT = 100   # higher value : increases the penalty cost facilitating convergence but to high value can give poor solutions as strict feasibility would be enforced
 USE_NONLINEAR_COST       = False
 # LEARNING_RATE_0  *(1/it)^DECAY_RATE
 
@@ -311,7 +311,7 @@ class EdgeComputingAgent(Publisher) :
         self._parametric_task_count   = 0
         self._communication_radius    = 100000                      # practically infinity
         self._use_non_linear_cost     = USE_NONLINEAR_COST
-        self._jit                     = True
+        self._jit                     = False
         self._num_iterations          = None
         self._current_iteration       = 0
         self._learning_rate_0         = LEARNING_RATE_0         # initial value of the learning rate 
@@ -552,7 +552,7 @@ class EdgeComputingAgent(Publisher) :
             
   
     
-    def setup_optimizer(self,num_iterations :int) :
+    def setup_optimizer(self,num_iterations :int, jit: bool = False) -> None :  
         """
         setup the optimization problem for the given agent
         """    
@@ -560,7 +560,8 @@ class EdgeComputingAgent(Publisher) :
         # If there is not prametric task you can skip
         if not self.is_computing_edge :
             return  
-
+        
+        self._jit = jit
         
         if self._is_initialized_for_optimization :
             message = "The optimization problem was already set up. You can only set up the optimization problem once at the moment."
@@ -589,7 +590,7 @@ class EdgeComputingAgent(Publisher) :
                 # Set the scale factor positive in constraint
                 epsilon = 1e-3
                 self._optimizer.subject_to(task_container.scale_var >= epsilon)
-                # self._optimizer.subject_to(task_container.scale_var <= 1)          # this constraint is not needed in theory as the optimal solution must abide bide this constraint. But it helps convergence.
+                self._optimizer.subject_to(task_container.scale_var <= 1)          # this constraint is not needed in theory as the optimal solution must abide bide this constraint. But it helps convergence.
                 
                 # set an initial value for the scale variables
                 scale_guess =1
@@ -822,22 +823,26 @@ class EdgeComputingGraph(nx.Graph) :
         self._node[node_for_adding][AGENT] = EdgeComputingAgent(edge_id = node_for_adding)
         
 def extract_computing_graph_from_communication_graph(communication_graph :CommunicationGraph, communication_radius:float = 1.0) -> EdgeComputingGraph :
-    
-    if not isinstance(communication_graph,CommunicationGraph) :
-        raise ValueError("The input graph must be a communication graph")
-    
-    computing_graph = EdgeComputingGraph()
-    
+        
     if not nx.is_tree(communication_graph) :
         raise ValueError("The communication graph must be acyclic to obtain a valid computation graph")
     
-    for edge in communication_graph.edges :
+    computing_graph = EdgeComputingGraph()
+    selfloops = set(nx.selfloop_edges(communication_graph,data=False))
+    
+    edge_view = communication_graph.edges
+    
+    edges     = set(communication_graph.edges)
+    edges     = edges - selfloops
+    
+    
+    for edge in edges :
         computing_graph.add_node(edge_to_int(edge))
     
-    for edge in communication_graph.edges :    
+    for edge in edges :    
         # Get all edges connected to node1 and node2
-        edges_node1 = set(communication_graph.edges(edge[0]))
-        edges_node2 = set(communication_graph.edges(edge[1]))
+        edges_node1 = set(edge_view(edge[0]))
+        edges_node2 = set(edge_view(edge[1]))
     
         # Combine the edges and remove the original edge
         adjacent_edges = list((edges_node1 | edges_node2) - {edge, (edge[1],edge[0])})
@@ -855,11 +860,15 @@ def extract_computing_graph_from_communication_graph(communication_graph :Commun
     
     
 
-def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, communication_radius:float ,number_of_optimization_iterations : int,logger_file:str = None,logger_level:int = logging.INFO) :
+def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, communication_radius:float ,number_of_optimization_iterations : int,logger_file:str = None,logger_level:int = logging.INFO, jit:bool= False) :
     """Task decomposition pipeline"""
     
     # Normalize the task graph and the communication graph to have the same nodes as a precaution.
     normalize_graphs(communication_graph, task_graph)
+    
+    # remove the self edges from the communicaiton graph to check acyclicity
+    selfloops = nx.selfloop_edges(communication_graph)
+    communication_graph.remove_edges_from(selfloops)
     
     # Check the communication graph.
     if not nx.is_connected(communication_graph) :
@@ -867,8 +876,9 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, com
     if not nx.is_tree(communication_graph) :
         raise ValueError("The communication graph is not a acyclic. Please provide an acyclic communication graph")
     
+    communication_graph.add_edges_from(selfloops)
     original_task_graph :TaskGraph = clean_task_graph(task_graph) # remove edges that do not have tasks to keep the graph clean..
-    new_task_graph      :TaskGraph = create_task_graph_from_edges(communication_graph.edges) # base the new task graph on the communication graph.
+    new_task_graph      :TaskGraph = TaskGraph()
 
     # Create computing graph. Communication radius important to ensure communication consistency of the solution (and avoid diverging iterates).
     computing_graph :EdgeComputingGraph = extract_computing_graph_from_communication_graph(communication_graph = communication_graph, communication_radius = communication_radius)
@@ -878,32 +888,40 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, com
     # For each each edge check if there is a decomposition to be done.
     for edge in original_task_graph.edges : 
         
-        if edge in communication_graph.edges :
+        
+        if edge[0] == edge[1] : # if the edge is a self edge.
             task_list = original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
+            new_task_graph.add_edge(edge[0],edge[1])
+            # add the tasks to the new task graph.
+            new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task_list)
+        
+        elif (edge in communication_graph.edges): # if the edge is consistent with the communication graph.
+            task_list = original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
+            new_task_graph.add_edge(edge[0],edge[1])
             # add the tasks to the new task graph.
             new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task_list)
             
-            # Add tasks to the computing graph to go on with the decomposition.
-            for task in task_list :
-                container = TaskOptiContainer(task = task) # non parametric task containers.
-                computing_graph.nodes[edge_to_int((edge[1],edge[0]))][AGENT].add_task_containers(task_containers = container)
+            # Add tasks to the computing graph to go on with the decomposition (if not self tasks).
+            if edge[0] != edge[1] :
+                for task in task_list :
+                    container = TaskOptiContainer(task = task) # non parametric task containers.
+                    computing_graph.nodes[edge_to_int((edge[1],edge[0]))][AGENT].add_task_containers(task_containers = container)
         
-        # if the edge is a critical edge
-        elif not (edge in communication_graph.edges) :  # this edge is inconsistent with the communication graph
-            
-            # Retrive all the tasks on the edge because such tasks will be decomposed
+        else :  # if the edge is a critical edge.
+            # Retrieve all the tasks on the edge because such tasks will be decomposed.
             tasks_to_be_decomposed: list[StlTask] =  original_task_graph[edge[0]][edge[1]][MANAGER].tasks_list
             
             path = nx.shortest_path(communication_graph,source = edge[0],target = edge[1]) # find shortest path connecting the two nodes.
             edges_through_path = edge_set_from_path(path=path) # find edges along the path.
             
-            for parent_task in tasks_to_be_decomposed : # add a new set of tasks for each edge along the path of the task to be decomposed
+            for parent_task in tasks_to_be_decomposed : # add a new set of tasks for each edge along the path of the task to be decomposed.
                 
                 critical_task_to_path_mapping[parent_task] = path # map the critical task to the path used to decompose it.
                 if (parent_task.predicate.source_agent,parent_task.predicate.target_agent) != (path[0],path[-1]) : # case the direction is incorrect.
                     parent_task.flip() # flip the task such that all tasks have the same direction of the node.
                 
                 for source_node,target_node in  edges_through_path :
+                    new_task_graph.add_edge(source_node,target_node) # adds the edge (nothing doe in case the edge is already present)
                     
                     # Create parametric task along this edge and add it to the communication graph.
                     subtask = create_parametric_collaborative_task_from(task = parent_task , source_agent_id = source_node, target_agent_id = target_node ) 
@@ -919,7 +937,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, com
         
     # after all constraints are set, initialise source nodes as computing agents for the dges that were used for the optimization
     for node in computing_graph.nodes :
-        computing_graph.nodes[node][AGENT].setup_optimizer(num_iterations = number_of_optimization_iterations)
+        computing_graph.nodes[node][AGENT].setup_optimizer(num_iterations = number_of_optimization_iterations, jit = jit)
     
     
     # Set the callback connections.
@@ -976,11 +994,11 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph, com
     
     # Fill the new_task graph.
     for edge in new_task_graph.edges :
-        computing_edge_id = edge_to_int(edge)
-        
-        for container in computing_graph.nodes[computing_edge_id][AGENT].task_containers :
-            task = computing_graph.nodes[computing_edge_id][AGENT].deparametrize_container(task_container = container) # Returns the tasks (deparametrised in case it is parametric).
-            new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task) # add the task to the new task graph once the solution is found.
+        if not (edge[0] == edge[1]) :
+            computing_edge_id = edge_to_int(edge)
+            for container in computing_graph.nodes[computing_edge_id][AGENT].task_containers :
+                task = computing_graph.nodes[computing_edge_id][AGENT].deparametrize_container(task_container = container) # Returns the tasks (deparametrised in case it is parametric).
+                new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task) # add the task to the new task graph once the solution is found.
     
     new_task_graph = clean_task_graph(new_task_graph) # clean the graph from edges without any tasks (so the ones present in the old task graph and that are not used now)
     

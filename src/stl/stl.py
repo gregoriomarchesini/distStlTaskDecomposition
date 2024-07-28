@@ -8,9 +8,6 @@ import matplotlib.pyplot as plt
 
 from loggers.loggers import get_logger
 
-
-np.random.seed(100)
-
 UniqueIdentifier : TypeAlias = int #Identifier of a single agent in the system
 SmoothMinBarrier         = Union["IndependentSmoothMinBarrierFunction", "CollaborativeLinearBarrierFunction"]
 LinearBarrier            = Union["IndependentLinearBarrierFunction", "CollaborativeLinearBarrierFunction"]
@@ -276,7 +273,7 @@ class PolytopicPredicate(ABC):
     def state_space_dim(self)-> int:
         return self._state_space_dim
     @property
-    def vertices(self) -> np.ndarray:
+    def vertices(self) -> list[np.ndarray]:
         return self._vertices
     @property
     def num_vertices(self):
@@ -932,7 +929,7 @@ def create_linear_barriers_from_task(task : StlTask, initial_conditions : dict[U
                                     "Probably the initial condition is too far from the zero-super-level set of the predicate assigned to the task. Either select better" +
                                     "initial conditions or increase the maximum control input"))
             
-            gamma_0   =  gamma_0_min  + 0.2*(gamma_0_max - gamma_0_min) # 80% of the maximum value 
+            gamma_0   =  gamma_0_min  + 0.08*(gamma_0_max - gamma_0_min) # 80% of the maximum value 
             gamma_fun = GammaFunction(gamma_0         = gamma_0,
                                       time_flattening = time_of_satisfaction,
                                       t_0             = t_init)
@@ -946,7 +943,7 @@ def create_linear_barriers_from_task(task : StlTask, initial_conditions : dict[U
             elif time_of_satisfaction == t_init :
                 gamma_fun = GammaFunction.flat_gamma()
             else :
-                heuristic_ratio = 0.2
+                heuristic_ratio = 0.1
                 gamma_fun = GammaFunction(gamma_0         = gamma_0_max*heuristic_ratio,
                                           time_flattening = time_of_satisfaction,
                                           t_0             = t_init)
@@ -957,7 +954,7 @@ def create_linear_barriers_from_task(task : StlTask, initial_conditions : dict[U
             if time_of_satisfaction<=t_init :
                 gamma_fun = GammaFunction.flat_gamma()
             else :
-                heuristic_ratio = 0.2
+                heuristic_ratio = 0.1
                 gamma_fun       = GammaFunction(gamma_0         = gamma_0_max*heuristic_ratio,
                                                 time_flattening = time_of_satisfaction,
                                                 t_0             = t_init)

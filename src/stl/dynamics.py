@@ -36,7 +36,7 @@ UniqueIdentifier: TypeAlias = int
 # for describing a dynamical system. Feel free to add more names if you need them
 
 
-FREQUENCY = 240 # hz
+FREQUENCY = 100 # hz
 
 def is_casadiMX(x):
     return isinstance(x, ca.MX)

@@ -130,7 +130,8 @@ class Publisher(ABC):
 class STLController(Publisher):
     """STL-QP based controller"""
     def __init__(self, unique_identifier          : int,
-                       dynamical_model            : DynamicalModel) -> None:
+                       dynamical_model            : DynamicalModel,
+                       log_level = logging.INFO) -> None:
         
         
         if not isinstance(dynamical_model,DynamicalModel):
@@ -156,9 +157,9 @@ class STLController(Publisher):
         self._best_impact_from_leaders   : dict[int,float] = dict()   # for each leader you will receive a best impact that you can use to compute your gamma
         self._worse_impact_on_leaders    : dict[int,float] = dict() # after you compute gamma you send back your worse impact to the leader
         
-        self._worse_impact_on_leaders_stored_lambda : dict[int,Callable] = dict() # stores a simple lambda function that can be used to compute the worse impact when the gamma is computed
+        self._worse_impact_on_leaders_stored_lambda : dict[int,Callable|None] = dict() # stores a simple lambda function that can be used to compute the worse impact when the gamma is computed
         
-        self._worse_impact_from_follower : float = None # this is the worse impact that the follower of your task will send you back
+        self._worse_impact_from_follower : float|None = None # this is the worse impact that the follower of your task will send you back
         self._best_impact_on_follower    : float = 0. # this is the best impact that you can have on thhe task you are leading
         
         self._barrier_constraints         : list[ca.MX]                  = []    # barrier constraint
@@ -170,25 +171,26 @@ class STLController(Publisher):
         
         # computed control reduction factor gamma
         self._gamma                     : float            = 1      # 0 < gamma_i <= 1 control reduction function
-        self._gamma_tilde               : dict[int,float]  = dict()     # list of all the intermediate gammas for each task. This corresponds to tilde_gamma_ij
+        self._gamma_tilde               : dict[int,float|None]  = dict()     # list of all the intermediate gammas for each task. This corresponds to tilde_gamma_ij
 
         self._best_impact_solver  = BestImpactSolver(model = dynamical_model)
         self._worse_impact_solver = WorseImpactSolver(model = dynamical_model)
         
         scalar = ca.MX.sym("scalar",1)
-        self._alpha_fun = ca.Function("alpha_fun",[scalar],[2*scalar])
+        factor = 50
+        self._alpha_fun = ca.Function("alpha_fun",[scalar],[ ca.if_else(scalar>=0,factor*scalar,0.002*scalar) ])
         
         # check if tasks are given to this controller
         self._has_tasks                 = False
         self._has_self_tasks            = False
         self._is_leaf                   = False
-        
+        self._jit                       =  False # just in time compilation of the controller
         topics = ["best_impact","worse_impact"]
         
         for topic in topics:
             self.add_topic(topic)
         
-        self._logger = get_logger(f"Controller {self._unique_identifier}")
+        self._logger = get_logger(f"Controller {self._unique_identifier}", level=log_level)
 
     
     #exposed attributes according to main abstract class
@@ -223,11 +225,12 @@ class STLController(Publisher):
   
     
     # Main routines 
-    def setup_optimizer(self, initial_conditions: dict[int,np.ndarray], stl_tasks:list[StlTask], leadership_tokens: dict[int,LeadershipToken],initial_time: float) -> None:
+    def setup_optimizer(self, initial_conditions: dict[int,np.ndarray], stl_tasks:list[StlTask], leadership_tokens: dict[int,LeadershipToken],initial_time: float, jit:bool= False) -> None:
         """Used to set up the controller. The main objective here it is to transform the tasks into barriers and then to initialise the constraints for the optimization problem"""
         self._logger.info(f"Setting up the controller")
         
         # Save all the leader neighbours
+        self._logger.info(f"Recorded leadreship tokens : {leadership_tokens}")
         self._leader_neighbours , self._follower_neighbour = self.get_leader_and_follower_neighbours(leadership_tokens)
         self._best_impact_from_leaders = {unique_identifier : None for unique_identifier in self._leader_neighbours} # initialise the best impact from leaders
         self._task_neighbours_id       = self._leader_neighbours + [self._follower_neighbour] if self._follower_neighbour is not None else self._leader_neighbours
@@ -235,7 +238,7 @@ class STLController(Publisher):
         self._initialization_time = initial_time  # time at which the problem is initialized
         self._params              = self.get_optimization_parameters_dictionary(self._task_neighbours_id)   
         self._gamma_tilde         = {unique_identifier : None for unique_identifier in self._leader_neighbours} # initialise the gamma tilde values 
-        
+        self._jit                = jit
         
         # add the tasks to the controller
         try :
@@ -253,7 +256,6 @@ class STLController(Publisher):
         control_input_constraints      = self.get_control_input_constraints()
         collision_avoidance_constraint = self.collision_avoidance_constraint()
         
-        
         self._optimizer.subject_to(ca.vertcat(*self._barrier_constraints) <= 0)
         self._optimizer.subject_to(ca.vertcat(*control_input_constraints) <= 0)
         # self._optimizer.subject_to(collision_avoidance_constraint <= 0) #todo! : check here when you can add the collision avoidance constraint again
@@ -266,13 +268,18 @@ class STLController(Publisher):
         
         
         
-        # Problem options
-        p_opts = dict(print_time=False, 
-                    verbose=False,
-                    expand=True,
-                    compiler='shell',
-                    jit=True,  # Enable JIT compilation
-                    jit_options={"flags": '-O3', "verbose": True, "compiler": 'gcc'})  # Specify the compiler (optional, default is gcc))
+        if self._jit:
+            # Problem options
+            p_opts = dict(print_time=False, 
+                        verbose=False,
+                        expand=True,
+                        compiler='shell',
+                        jit=True,  # Enable JIT compilation
+                        jit_options={"flags": '-O3', "verbose": True, "compiler": 'gcc'})  # Specify the compiler (optional, default is gcc))
+        else:
+            p_opts = dict(print_time=False, 
+                        verbose=False,
+                        expand=True)
 
         
         # Solver options
@@ -284,13 +291,13 @@ class STLController(Publisher):
         
         self._optimizer.minimize(cost)
         self._optimizer.solver("ipopt",p_opts,s_opts)
+        self._logger.info(f"Recorded Follower neighbour : {self._follower_neighbour}")
        
     def get_leader_and_follower_neighbours(self,leadership_tokens: dict[int,LeadershipToken]) -> tuple[list[int],int]:
         
         # Save all the leader neighbours
         leader_neighbours  = []
         follower_neighbour = None
-        self._logger.info(f"Recorded Follower neighbour : {follower_neighbour}")
         
         for unique_identifier,token in leadership_tokens.items() :
             if token == LeadershipToken.UNDEFINED :
@@ -302,6 +309,7 @@ class STLController(Publisher):
         
         if len(leader_neighbours) == 0:
             self._is_leaf = True
+
             
         return leader_neighbours,follower_neighbour
        
@@ -341,36 +349,40 @@ class STLController(Publisher):
     
     def get_barriers_from_tasks(self,tasks: list[StlTask], initial_conditions) -> dict[int,"SmoothMinBarrier"]:  
         
-        barriers_storage = {identifier : [] for identifier in self._task_neighbours_id}
+        barriers_storage = {}
 
-        
         # For each edge, the predicate level set is divided into multiple linear barrier functions, which are store in a list.
         for task in tasks:
             if isinstance(task.predicate,CollaborativePredicate):
+                new_barriers = create_linear_barriers_from_task( task = task,
+                                                                     initial_conditions  = initial_conditions,
+                                                                     t_init               = self._initialization_time,
+                                                                     maximum_control_input_norm = self._dynamical_model.maximum_expressible_speed)
+                
                 if self._unique_identifier == task.predicate.source_agent:
-                    barriers_storage[task.predicate.target_agent] += create_linear_barriers_from_task( task                       = task,
-                                                                                                       initial_conditions         = initial_conditions,
-                                                                                                       t_init                     = self._initialization_time,
-                                                                                                       maximum_control_input_norm = self._dynamical_model.maximum_expressible_speed)
+                    barriers = barriers_storage.setdefault(task.predicate.target_agent,[]) 
+                    barriers += new_barriers
                 
                 else :
-                    barriers_storage[task.predicate.source_agent] += create_linear_barriers_from_task( task                       = task,
-                                                                                                       initial_conditions         = initial_conditions,
-                                                                                                       t_init                     = self._initialization_time,
-                                                                                                       maximum_control_input_norm = self._dynamical_model.maximum_expressible_speed)
+                    barriers = barriers_storage.setdefault(task.predicate.source_agent,[]) 
+                    barriers += new_barriers
+                    
             elif isinstance(task.predicate,IndependentPredicate):
-                 barriers_storage[self._unique_identifier] += create_linear_barriers_from_task( task                       = task,
-                                                                                                initial_conditions         = initial_conditions,
-                                                                                                t_init                     = self._initialization_time,
-                                                                                                maximum_control_input_norm = self._dynamical_model.maximum_expressible_speed)
+                new_barriers =  create_linear_barriers_from_task( task = task,
+                                                                   initial_conditions         = initial_conditions,
+                                                                   t_init                     = self._initialization_time,
+                                                                   maximum_control_input_norm = self._dynamical_model.maximum_expressible_speed)
+                barriers = barriers_storage.setdefault(self._unique_identifier,[])
+                barriers += new_barriers 
+                 
         
         # For each edge the barriers are compacted using the smooth minimum approximaiton
-        smooth_min_barriers = {identifier : None for identifier in self._task_neighbours_id}
+        smooth_min_barriers = { unique_identifier:None for unique_identifier in barriers_storage.keys()}
         
         # join the barriers in a single minimum approximation
         for identifier,barriers in  barriers_storage.items():
             
-            eta_value = 25 # The higher the better, but the risk is to then run into numerical imprecision with the smooth min approximation
+            eta_value = 40 # The higher the better, but the risk is to then run into numerical imprecision with the smooth min approximation
             if isinstance(barriers[0],CollaborativeLinearBarrierFunction):
                 smooth_min_barriers[identifier] = CollaborativeSmoothMinBarrierFunction(list_of_barrier_functions=barriers, eta = eta_value) 
             elif isinstance(barriers[0],IndependentLinearBarrierFunction):
@@ -440,10 +452,12 @@ class STLController(Publisher):
             barrier_value = barrier.compute(x=params["state"][self._unique_identifier],
                                             t=params["time"])
             
-            
-            slack             = ca.MX.sym("slack",1)
-            self._slack_vars  += [slack]
-            barrier_constraint = -1* ( nabla_xi @ g_xi@self._control_input_var + (gamma_dot + self._alpha_fun(barrier_value)) + slack)
+            if self._follower_neighbour == None: # In this case you are the global leader
+                barrier_constraint = -1* ( nabla_xi @ g_xi@self._control_input_var + (gamma_dot + self._alpha_fun(barrier_value)))
+            else :
+                slack              = self._optimizer.variable(1)
+                self._slack_vars  += [slack]
+                barrier_constraint = -1* ( nabla_xi @ g_xi@self._control_input_var + (gamma_dot + self._alpha_fun(barrier_value)) + slack)
         
         else :
             raise ValueError(f"Barrier function should be either a CollaborativeSmoothMinBarrierFunction, CollaborativeLinearBarrierFunction, IndependentSmoothMinBarrierFunction or IndependentLinearBarrierFunction. You have {type(barrier)}")
@@ -455,7 +469,6 @@ class STLController(Publisher):
         
         constraints = []
         self._barrier_functions = self.get_barriers_from_tasks(tasks,initial_conditions)
-
         for barrier in self._barrier_functions.values():
             constraints += [self.from_barrier_to_constraint(barrier,self._params)]
         
@@ -588,8 +601,8 @@ class STLController(Publisher):
         if self.is_ready_to_compute_gamma :
             self._gamma = min( list(self._gamma_tilde.values()) + [1]) # take the minimum of the gamma tilde values
             if self._gamma<=0 :
-                self._logger.error(f"The computed gamma value is negative. This breakes the process. The gamma value is {self._gamma}")
-                raise RuntimeError(f"The computed gamma value for agent {self._unique_identifier} is negative. This breakes the process. The gamma value is {self._gamma}")
+                self._logger.error(f"The computed gamma value is negative and thus it is set at zero. This means that even if this agent takes a zero input, the barrier will not be satisfied. The gamma value is set at zero anyway {self._gamma}")
+                self._gamma = 0
         else :
             raise RuntimeError(f"The list of gamma tilde values is not complete. You have {len(self._gamma_tilde)} values, but you should have {len(self._leader_neigbours)} values from each of the leaders. Make sure you compute the gamma_tilde value for each leader at this iteration.")    
         
@@ -640,11 +653,18 @@ class STLController(Publisher):
     
     def compute_control_input(self, current_states:dict[int,np.ndarray], current_time: float) -> np.ndarray:
         
+        
+        
+        
+        # gamma equal to zero just stand by
+        if self._gamma == 0:
+            self._logger.info(f"Value of gamma is zero. stand by")
+            return np.zeros((2,1))
+        
         # to be adapted when dealing with real time implementation
-        if (self._worse_impact_from_follower == None) and self._follower_neighbour != None:
+        if (self._worse_impact_from_follower == None) and (self._follower_neighbour != None):
             self._logger.error(f"The worse impact from the follower is not computed. Follower neighbour is {self._follower_neighbour}")
-            
-            raise RuntimeError(f"The worse impact from the follower is not computed.")
+            raise RuntimeError(f"The worse impact from the follower is not computed.Follower neighbour is {self._follower_neighbour}")
         
         
         # set values of the parameters for the controller
@@ -664,7 +684,6 @@ class STLController(Publisher):
                 self._warm_start_sol   = sol
         
             except Exception as e1:
-                print(f"Agent {self._unique_identifier} Primary Controller Failed !")
                 self._logger.error(f"Primary controller failed with the following message")
                 self._logger.error(e1, exc_info=True)
                 failed_computation = True
@@ -677,7 +696,6 @@ class STLController(Publisher):
                 self._warm_start_sol   = sol
         
             except Exception as e2:
-                print(f"Agent {self._unique_identifier} Primary Controller Failed !")
                 self._logger.error(f"Primary controller failed with the following message")
                 self._logger.error(e2, exc_info=True)
                 failed_computation = True

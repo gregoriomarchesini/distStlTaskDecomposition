@@ -7,7 +7,7 @@ filename_now  = "log_file" + "_" + dt_string + ".log"
 def get_logger(name:str,filename:str |None = None, level : int = logging.INFO)-> logging.Logger:
     
     logger    =  logging.getLogger(name)
-    logger.setLevel(level)
+    # logger.setLevel(level)
     
     if filename is None:
         filename =filename_now

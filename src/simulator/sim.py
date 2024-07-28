@@ -60,10 +60,10 @@ class MultiAgentSystem:
             raise ValueError(f"The keys of the task_graph and communication_graph dictionaries must be the same. Nodes in the task graph are {list(self.task_graph.nodes)} and nodes in the communication graph are {list(self.communication_graph.nodes)}")
 
 
-def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> None:
+def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float, log_level = "INFO", jit : bool = False) -> None:
     
     print("============================ Starting Simulation =================================")
-    state_history = {unique_identifier : [] for unique_identifier in multi_agent_system.agents_states.keys()}
+    state_history = {unique_identifier : {} for unique_identifier in multi_agent_system.agents_states.keys()}
     time_step = DynamicalModel._time_step
     number_of_steps = int(final_time/time_step)
     
@@ -74,7 +74,8 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> 
     for agent_id,model in multi_agent_system.agents_models.items():
         
         controllers[agent_id] = STLController(unique_identifier = agent_id, 
-                                              dynamical_model   = model) 
+                                              dynamical_model   = model,
+                                              log_level         = log_level) 
         
     # Collect all the tasks for each agent.
     tasks_per_agent = {i:[] for i in multi_agent_system.agents_states.keys()}
@@ -106,27 +107,29 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> 
         controller.setup_optimizer(initial_conditions = multi_agent_system.agents_states,
                                    leadership_tokens = tokens_sets[agent_id],
                                    stl_tasks         = tasks_per_agent[agent_id],
-                                   initial_time      = multi_agent_system.current_time)
+                                   initial_time      = multi_agent_system.current_time,
+                                   jit = jit)
     
-    
-
+    number_rounds = round(nx.diameter(multi_agent_system.task_graph)/2)+1
+    print("Number of rounds")
+    print(number_of_steps)
     # Start simulation (sequential).
     with tqdm(total=number_of_steps) as pbar:
-        for _ in range(number_of_steps):
+        
+        for iteration in range(number_of_steps):    
+            time = iteration*time_step
             
             for agent_id in multi_agent_system.agents_models.keys():
-                        state_history[agent_id] += [multi_agent_system.agents_states[agent_id].flatten()]
+                state_history[agent_id][time] = multi_agent_system.agents_states[agent_id].flatten()
             
             try :
                 logger.info(f"New round, Time : {multi_agent_system.current_time}")
                 undone_controllers = controllers.copy()
                 
-                for rounds in range(int(nx.diameter(multi_agent_system.task_graph)/2)+1):
+                for rounds in range(number_rounds):
                     
-                    for agent_id,controller in undone_controllers.items():
-                        controller.compute_gamma_tilde_values(current_time = multi_agent_system.current_time, 
-                                                            agents_state = multi_agent_system.agents_states)
                     done_controllers = []
+                    # Compute gamma nd notify if you can.
                     for agent_id,controller in undone_controllers.items():
                         if controller.is_ready_to_compute_gamma:
                             controller.compute_gamma()
@@ -134,8 +137,14 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> 
                                                                         current_time = multi_agent_system.current_time)
                             controller.compute_worse_impact_for_leaders()
                             done_controllers += [agent_id]
+                    
+                    # remove the agents which already have computed the value if gamma.
                     for agent_id in done_controllers:
                         undone_controllers.pop(agent_id)
+                    
+                    for agent_id,controller in undone_controllers.items():
+                        controller.compute_gamma_tilde_values(current_time = multi_agent_system.current_time, 
+                                                              agents_state = multi_agent_system.agents_states)
                     
             except Exception as e:
                 print(format_exc())
@@ -157,7 +166,7 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> 
     fig, ax = plt.subplots()
     counter = 1
     for agent_id in multi_agent_system.agents_states.keys():
-        state = np.vstack(state_history[agent_id])
+        state = np.vstack(tuple(state_history[agent_id].values()))
         
         if counter == 1 :
             ax.scatter(state[0,0],state[0,1],marker="o",color="green", label="Initial position")
@@ -170,220 +179,5 @@ def simulate_agents(multi_agent_system : MultiAgentSystem, final_time:float) -> 
         counter = 0
         
     ax.legend()
-    plt.show()
     
-    
-    
-
-# def visualize_gamma(gamma_history: dict[int,TimeSeries],exclude_list:list[int] = []) -> plt.Axes:
-#     # now we can plot the results
-
-
-#     fig, ax = plt.subplots()
-    
-#     for agent_id,history in gamma_history.items() :
-        
-#         time = np.array(list(history.keys()))
-#         hist = np.array(list(history.values()))
-#         if not (agent_id in exclude_list) :
-#             ax.plot(time,hist,marker="s", label=fr"$\gamma_{{{agent_id}}}$")
-    
-    
-    
-    
-#     ax.set_xlabel(r"$time [s]$")
-#     ax.set_ylabel(r"$\gamma_i^k$")
-#     ax.grid()
-#     ax.legend()
-    
-    
-#     return ax
-    
-    
-
-# def visualize_barriers(agents_dict:dict[int,Agent],state_history:dict[int,TimeSeries],single_plot:bool = False,legend:bool =True)-> plt.Axes|None :
-
-#     n_cols = 3
-#     n_agents = len(agents_dict)
-#     fig,ax = plt.subplots(-(-n_agents//n_cols),n_cols)
-#     ax = ax.flatten()
-#     counter = 0
-#     if not single_plot :
-#         #plot barriers
-#         for agent_id,agent in agents_dict.items():
-            
-#             barriers : list[BarrierFunction] = agent.controller.barrier_functions
-#             for barrier in barriers :
-#                 barrier_history = TimeSeries()
-#                 time_range = list(state_history[agent_id].keys())
-#                 switch = barrier.switch_function
-                
-#                 for time in time_range :
-#                     contributing_agents = barrier.contributing_agents
-#                     try :
-#                         function_inputs         = { f"state_{id}":state_history[id][time] for id in contributing_agents}
-#                         function_inputs["time"] = time
-#                         barrier_history[time]   = float(barrier.function.call(function_inputs)["value"]*switch(time))
-#                     except KeyError:
-#                         pass
-                
-#                 ax[counter].set_xlabel(r"$ time [s]$ ")
-#                 ax[counter].set_ylabel("barrier")
-#                 ax[counter].plot(list( barrier_history.keys()),list( barrier_history.values()),marker = 's', label=f"b_{contributing_agents }")
-
-#             if legend :
-#                 ax[counter].legend()
-#             ax[counter].set_title("Agent "+str(agent_id))
-#             ax[counter].grid()
-            
-#             counter +=1
-    
-#     else :
-#         fig,ax = plt.subplots()
-#         edges = set()
-#         for agent_id,agent in agents_dict.items():
-            
-#             barriers : list[BarrierFunction] = agent.controller.barrier_functions
-#             for barrier in barriers :
-#                 barrier_history = TimeSeries()
-#                 time_range = list(state_history[agent_id].keys())
-#                 switch = barrier.switch_function
-
-                
-#                 contributing_agents = barrier.contributing_agents # it is always two in this case. one for the agent and one for the neighbour
-                
-#                 if len(contributing_agents) == 2 :
-#                     if agent_id == contributing_agents[0] :
-#                         neighbour_id = contributing_agents[1]
-#                     else :
-#                         neighbour_id = contributing_agents[0]
-#                 else :
-#                     neighbour_id = agent_id
-                    
-#                 if not ((agent_id,neighbour_id) in edges) : # to not repeat same edge
-#                     try :
-#                         for time in time_range :
-#                             function_inputs         = { f"state_{id}":state_history[id][time] for id in contributing_agents}
-#                             function_inputs["time"] = time
-#                             barrier_history[time]   = float(barrier.function.call(function_inputs)["value"]*switch(time))
-#                     except KeyError:
-#                         pass
-                    
-#                     edges.update([(agent_id,neighbour_id),(neighbour_id,agent_id)])
-                
-                
-#                     label = rf"$\phi_{{{agent_id,neighbour_id}}}$"
-#                     ax.plot(list( barrier_history.keys()),list( barrier_history.values()), marker = 's',label=label)
-
-
-#         if legend :
-#             ax.legend()
-#         ax.grid()
-#         ax.set_xlabel(r"$time [s]$")
-#         ax.set_ylabel(r"$b^{\phi}_{ij}(x^k,t^k) \qquad b^{\phi}_{i}(x^k,t) $")
-#         return ax
-                
-            
-        
-    
-#     fig,ax = plt.subplots(-(-n_agents//n_cols),n_cols)
-#     ax = ax.flatten()
-#     counter = 0 
-#     # plot alpha functions
-#     for agent_id,agent in agents_dict.items():
-        
-#         for barrier in agent.controller.barrier_functions :
-#             alpha_barrier_history = TimeSeries()
-#             time_range = list(state_history[agent_id].keys())
-            
-#             for time in time_range :
-#                 contributing_agents = barrier.contributing_agents
-#                 try :
-#                     function_inputs         = { f"state_{id}":state_history[id][time] for id in contributing_agents}
-#                     function_inputs["time"] = time
-#                     alpha  = barrier.associated_alpha_function
-#                     alpha_barrier_history[time]   =  float(alpha(barrier.function.call(function_inputs)["value"]))
-                
-#                 except KeyError:
-#                     pass
-            
-#             ax[counter].set_xlabel(r"$time [s]$")
-#             ax[counter].set_ylabel("alpha(b(x,t))")
-#             ax[counter].plot(list(alpha_barrier_history.keys()),list( alpha_barrier_history.values()), label=f"b_{contributing_agents }")
-
-        
-#         ax[counter].legend()
-#         ax[counter].set_title("Agent "+str(agent_id))
-#         ax[counter].grid()
-        
-#         counter +=1
-    
-#     fig,ax = plt.subplots(-(-n_agents//n_cols),n_cols)
-#     ax = ax.flatten()
-#     counter = 0
-#     # time derivative of the alpha functions
-#     for agent_id,agent in agents_dict.items():
-        
-#         for barrier in agent.controller.barrier_functions :
-#             db_dt = TimeSeries()
-#             time_range = list(state_history[agent_id].keys())
-            
-#             for time in time_range :
-#                 contributing_agents = barrier.contributing_agents
-#                 try :
-#                     function_inputs         = { f"state_{id}":state_history[id][time] for id in contributing_agents}
-#                     function_inputs["time"] = time
-#                     time_derivative = barrier.partial_time_derivative
-                                        
-#                     db_dt[time]   = float(barrier.partial_time_derivative.call(function_inputs)["value"])
-                
-#                 except KeyError:
-#                     pass
-            
-#             ax[counter].set_xlabel(r"$ time [s]$")
-#             ax[counter].set_ylabel("db_dt")
-#             ax[counter].plot(list( db_dt.keys()),list( db_dt.values()), label=f"b_{contributing_agents }")
-
-        
-#         ax[counter].legend()
-#         ax[counter].set_title("Agent "+str(agent_id))
-#         ax[counter].grid()
-        
-#         counter +=1
-    
-    
-#     fig,ax = plt.subplots(-(-n_agents//n_cols),n_cols)
-#     ax = ax.flatten()
-#     counter = 0
-#     # time derivative of the alpha functions
-#     for agent_id,agent in agents_dict.items():
-        
-#         for barrier in agent.controller.barrier_functions :
-#             db_dt = TimeSeries()
-#             time_range = list(state_history[agent_id].keys())
-            
-#             for time in time_range :
-#                 contributing_agents = barrier.contributing_agents
-#                 try :
-#                     function_inputs         = { f"state_{id}":state_history[id][time] for id in contributing_agents}
-#                     function_inputs["time"] = time
-#                     time_derivative = barrier.partial_time_derivative
-                                        
-#                     db_dt[time]   = float(time_derivative.call(function_inputs)["value"])
-                
-#                 except KeyError:
-#                     pass
-            
-#             ax[counter].set_xlabel(r"$time [s]$")
-#             ax[counter].set_ylabel("db_dt")
-#             ax[counter].plot(list( db_dt.keys()),list( db_dt.values()), label=f"b_{contributing_agents }")
-
-        
-#         ax[counter].legend()
-#         ax[counter].set_title("Agent "+str(agent_id))
-#         ax[counter].grid()
-        
-#         counter +=1
-
-    
-    
+    return state_history

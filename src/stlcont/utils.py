@@ -2,7 +2,7 @@ from   enum import Enum
 import multiprocessing as mp
 from   networkx import Graph, is_tree
 from   networkx import diameter as net_diameter
-from  dataclasses import dataclass
+import networkx as nx
 import numpy as np
 import sys,os
 
@@ -55,15 +55,12 @@ def any_undefined(Ti:dict[int,LeadershipToken]) -> bool :
 
 def token_passing_algorithm(task_graph:Graph):
     """
-    implements token passing algorithm
+    implements token passing algorithm. Given graph should be acyclic or the expected output will not tbe correct
     """
     # 0 undefined
     # 1 leader 
     # 2 follower
     tokens_dictionary = {}
-    if not is_tree(task_graph) :
-        raise RuntimeError("Only acyclic graphs are allowed")
-    
     # parallelized version (the overhead from to little agents will not be worth it)
     
     if len(task_graph.nodes()) >= 10 :

@@ -2,6 +2,7 @@ import networkx as nx
 from   typing import Union
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
 
 from   stl.stl import StlTask, CollaborativePredicate, IndependentPredicate
 
@@ -65,7 +66,20 @@ class CommunicationGraph(nx.Graph) :
     def __init__(self,incoming_graph_data=None, **attr) -> None:
         super().__init__(incoming_graph_data, **attr)
         
-        
+    
+    def add_edge(self,u_of_edge, v_of_edge,**attr) :
+        """ Adds an edge to the graph if it is not already present"""
+        if not (u_of_edge,v_of_edge) in self.edges :
+            super().add_edge(u_of_edge, v_of_edge,**attr)
+            
+        if not (u_of_edge == v_of_edge) :
+            super().add_edge(v_of_edge,v_of_edge)
+            super().add_edge(u_of_edge, u_of_edge)
+    
+    def add_edges_from(self, ebunch_to_add,**attr) :
+        """ Adds multiple edges to the graph."""
+        for edge in ebunch_to_add :
+            self.add_edge(edge[0],edge[1],**attr)
 
 class EdgeTaskManager() :
     
@@ -322,3 +336,32 @@ def show_graphs(*graphs, titles:list[str] = []) :
     for i,graph in enumerate(graphs) :
         nx.draw(graph,with_labels=True,ax= axs[i],pos=pos)
         axs[i].set_title(titles[i])
+        
+        
+
+def visualize_tasks_in_the_graph(task_graph: TaskGraph) :
+    
+    num_edges = len(task_graph.edges)
+    n_cols = 4
+    n_rows = int(num_edges/n_cols) +1
+    
+    fig,axs = plt.subplots(n_rows,n_cols,figsize=(15,15))
+    axs     = axs.flatten()
+    counter = 0
+    for edge in task_graph.edges :
+        tasks = task_graph.task_list_for_edge(edge[0],edge[1])
+        
+        for i,task in enumerate(tasks) :
+            if not(task.predicate.is_parametric) :
+                center   = task.predicate.center         
+                vertices = (np.hstack(task.predicate.vertices) + center).T
+                
+                
+                p        = Polygon(vertices , facecolor = 'gray',alpha = 0.5, edgecolor='k')
+                axs[counter].arrow(0.,0.,center[0].item(),center[1].item(),length_includes_head=True)
+                axs[counter].add_patch(p)
+                axs[counter].set_title(f"Edge {edge}")
+        
+        axs[counter].autoscale()
+        counter +=1
+    plt.tight_layout()
