@@ -766,12 +766,16 @@ class IndependentSmoothMinBarrierFunction(BarrierFunction):
         sum = 0
         x = ca.MX.sym("x",2) # assume that the state dimension is 2 for now 
         t = ca.MX.sym("t")
+        big_number = 1E2
+        
+        cumulative_switch = 0
         for barrier_function in self._list_of_barrier_functions :
-            sum += ca.exp(-self._eta*barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*100/self._eta)  
+            cumulative_switch += barrier_function._switch_function.compute(t) # to set the barrier at zero when all the barriers have been switched off
+            sum += ca.exp(-self._eta*barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*big_number/self._eta)  
             # ^^ each terms becomes very big when the switch function is off and the gradient of that component will be zero because the linear barrier component sets the gradient to zero (using the switch function)
         
         smooth_min_sym      = -ca.log(sum)/self._eta
-        smooth_min_fun      = ca.Function("smooth_min",[x,t],[smooth_min_sym])
+        smooth_min_fun      = ca.Function("smooth_min",[x,t],[smooth_min_sym * ca.if_else(cumulative_switch>0. ,1.0,0.)])
         gradient_fun        = ca.Function("smooth_min_gradient",[x,t],[ca.jacobian(smooth_min_sym,x)])
         time_derivative_fun = ca.Function("smooth_min_time_derivative",[x,t],[ca.jacobian(smooth_min_sym,t)])
         
@@ -829,13 +833,15 @@ class CollaborativeSmoothMinBarrierFunction(BarrierFunction):
         x_target   = ca.MX.sym("x",2) # assume that the state dimension is 2 for now
         t          = ca.MX.sym("t")
         
-        
+        big_number = 1E2
+        cumulative_switch = 0
         for barrier_function in self._list_of_barrier_functions :
-            sum += ca.exp(-self._eta* ( barrier_function.compute(x_source=x_source,x_target=x_target,t=t)  + (1.-barrier_function._switch_function.compute(t))*100/self._eta) ) 
+            cumulative_switch += barrier_function._switch_function.compute(t) # to set the barrier at zero when all the barriers have been switched off
+            sum += ca.exp(-self._eta* ( barrier_function.compute(x_source=x_source,x_target=x_target,t=t)  + (1.-barrier_function._switch_function.compute(t))*big_number/self._eta) ) 
             # ^^ each terms becomes very big when the switch function is off and the gradient of that component will be zero because the linear barrier component sets the gradient to zero (using the switch function)
         
         smooth_min_sym      = -1/self._eta * ca.log(sum)
-        smooth_min_fun      = ca.Function("smooth_min",[x_source,x_target,t],[smooth_min_sym])
+        smooth_min_fun      = ca.Function("smooth_min",[x_source,x_target,t],[smooth_min_sym* ca.if_else(cumulative_switch>0. ,1.0,0.)])
         gradient_fun        = ca.Function("smooth_min_gradient",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,x_target)]) 
         time_derivative_fun = ca.Function("smooth_min_time_derivative",[x_source,x_target,t],[ca.jacobian(smooth_min_sym,t)])
         
@@ -929,7 +935,7 @@ def create_linear_barriers_from_task(task : StlTask, initial_conditions : dict[U
                                     "Probably the initial condition is too far from the zero-super-level set of the predicate assigned to the task. Either select better" +
                                     "initial conditions or increase the maximum control input"))
             
-            gamma_0   =  gamma_0_min  + 0.08*(gamma_0_max - gamma_0_min) # 80% of the maximum value 
+            gamma_0   =  gamma_0_min  + 0.02*(gamma_0_max - gamma_0_min) # 80% of the maximum value 
             gamma_fun = GammaFunction(gamma_0         = gamma_0,
                                       time_flattening = time_of_satisfaction,
                                       t_0             = t_init)
@@ -950,6 +956,7 @@ def create_linear_barriers_from_task(task : StlTask, initial_conditions : dict[U
                 
             
         else : # you are inside the super level set of the predicate
+           # In general it is better not have to have to many tasks with this condition but rather set som trigger times where you filter out the tasks that where already satisfied 
             
             if time_of_satisfaction<=t_init :
                 gamma_fun = GammaFunction.flat_gamma()
@@ -1007,3 +1014,6 @@ def plot_contour(smooth_min :CollaborativeBarrierType | IndependentBarrierType  
                 raise NotImplementedError("plotting only allowed for 2D states")
     return ax.contourf(X,Y,Z,cmap=plt.cm.bone)
 
+
+def filter_tasks_by_time_limit(tasks:list[StlTask], initial_time: float, final_time :float) -> list[StlTask]:
+    return [task for task in tasks if task.temporal_operator.time_of_satisfaction >= initial_time and task.temporal_operator.time_of_satisfaction <= final_time]

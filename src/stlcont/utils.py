@@ -63,48 +63,23 @@ def token_passing_algorithm(task_graph:Graph):
     tokens_dictionary = {}
     # parallelized version (the overhead from to little agents will not be worth it)
     
-    if len(task_graph.nodes()) >= 10 :
-        agents = list(task_graph.nodes())
-        manager = mp.Manager()
-        
-        for agent in agents :
-            neighbours = [unique_identifier for unique_identifier in task_graph.neighbors(agent) if unique_identifier!=agent] # eliminate self loops
-            Ti = manager.dict({unique_identifier:LeadershipToken.UNDEFINED for unique_identifier in neighbours})
-            tokens_dictionary[agent] = Ti
-        
-        tokens_dictionary = manager.dict(tokens_dictionary)
-        diameter = net_diameter(task_graph)
+    agents = sorted(list(task_graph.nodes()), reverse=True)
     
-        for round in range(int(np.ceil(diameter/2))+1) :
-            with mp.Pool(6) as pool:
-                pool.starmap(update_tokens, [(agent, tokens_dictionary) for agent in agents])
-        
-        
-        for Ti in tokens_dictionary.values() :
-            if any_undefined(Ti) :
-                print_tokens(tokens_dictionary)
-                raise RuntimeError("Error: token passing algorithm did not converge")
- 
-        
-    # serial version
-    else :
-        agents = list(task_graph.nodes())
-        
+    for agent in agents :
+        Ti = {unique_identifier:LeadershipToken.UNDEFINED for unique_identifier in task_graph.neighbors(agent) if unique_identifier!=agent}
+        tokens_dictionary[agent] = Ti
+    
+    diameter = net_diameter(task_graph)
+    
+    for round in range(int(np.ceil(diameter/2))+1) :
         for agent in agents :
-            Ti = {unique_identifier:LeadershipToken.UNDEFINED for unique_identifier in task_graph.neighbors(agent) if unique_identifier!=agent}
-            tokens_dictionary[agent] = Ti
-        
-        diameter = net_diameter(task_graph)
-        
-        for round in range(int(np.ceil(diameter/2))+1) :
-            for agent in agents :
-                update_tokens(agent,tokens_dictionary)
-                
-        
-        for Ti in tokens_dictionary.values() :
-            if any_undefined(Ti) :
-                print_tokens(tokens_dictionary)
-                raise RuntimeError("Error: token passing algorithm did not converge")
+            update_tokens(agent,tokens_dictionary)
+            
+    
+    for Ti in tokens_dictionary.values() :
+        if any_undefined(Ti) :
+            print_tokens(tokens_dictionary)
+            raise RuntimeError("Error: token passing algorithm did not converge")
             
     return tokens_dictionary
 

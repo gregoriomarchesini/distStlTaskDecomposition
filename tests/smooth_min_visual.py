@@ -22,10 +22,10 @@ switch.plot()
 
 polytope    = regular_2D_polytope(5,1)
 predicate   = CollaborativePredicate(polytope,source_agent_id=0,target_agent_id=1,center=np.array([0,0]))
-task1        = G(5,10)  >> predicate
+task1        = G(5,10)  @ predicate
 
 predicate   = CollaborativePredicate(polytope,source_agent_id=0,target_agent_id=1,center=np.array([3,3]))
-task2        = G(5,10) >> predicate
+task2        = G(5,10) @ predicate
 
 
 
