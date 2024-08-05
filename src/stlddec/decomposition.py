@@ -41,7 +41,7 @@ def powerset(iterable) -> list[set]:
         >>> powerset([1, 2, 3])
         [(), (1,), (2,), (3,), (1, 2), (1, 3), (2, 3), (1, 2, 3)]
     """
-    power_set = chain.from_iterable(combinations(s, r) for r in range(1,len(s)+1))
+    power_set = chain.from_iterable(combinations(iterable, r) for r in range(1,len(iterable)+1))
     power_set = [set(x) for x in power_set] # use set operations
     return power_set
 
