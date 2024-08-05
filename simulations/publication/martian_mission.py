@@ -115,7 +115,7 @@ for ii in range(2,16):
 # while 1 goes back to zero
 polytope     = regular_2D_polytope(8, 200* meters_to_km    )
 predicate    = IndependentPredicate( polytope_0 = polytope, center = np.array([0.,0.]), agent_id =1 )
-task         = G(30,35) @ predicate
+task         = G(30,40) @ predicate
 task_graph.attach(task)
 
 
@@ -134,7 +134,7 @@ if  USE_SAVED_TASK_GRAPH :
 else :
     parameters = DecompositionParameters(learning_rate_0     = 0.3,  # higher value : increases learning speed bu gives rise to jittering
                                          decay_rate          = 0.7,  # higher value : learning rate decays faster
-                                         penalty_coefficient  = 3500,  # higher value : can speed up convergence but too high values will enhance jittering
+                                         penalty_coefficient  = 100,  # higher value : can speed up convergence but too high values will enhance jittering
                                          communication_radius  = 8.5, # practically infinity
                                          number_of_optimization_iterations = 1000)
     
