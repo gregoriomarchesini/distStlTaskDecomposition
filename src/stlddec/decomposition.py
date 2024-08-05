@@ -3,7 +3,7 @@ import casadi as ca
 from   itertools import chain,combinations
 import networkx as nx 
 import logging
-from typing import Iterable
+from typing import Iterable, TypeVar
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import contextlib
@@ -33,13 +33,15 @@ def edge_set_from_path(path:list[int]) -> list[(int,int)] :
         
     return edges
 
-def powerset(iterable) -> list[set]:
+
+V = TypeVar("V")
+def powerset(iterable : Iterable[V]) -> list[set[V]]:
     """
     Computes the power set of a set fo elements
     
     Example:
         >>> powerset([1, 2, 3])
-        [(), (1,), (2,), (3,), (1, 2), (1, 3), (2, 3), (1, 2, 3)]
+        [ (1,), (2,), (3,), (1, 2), (1, 3), (2, 3), (1, 2, 3)]
     """
     power_set = chain.from_iterable(combinations(iterable, r) for r in range(1,len(iterable)+1))
     power_set = [set(x) for x in power_set] # use set operations
@@ -311,6 +313,209 @@ def any_parametric( iterable:Iterable[TaskOptiContainer] ) -> bool :
     return any([task_container.task.is_parametric for task_container in iterable])
 
     
+T = TypeVar("T", StlTask,TaskOptiContainer )
+def get_intersecting_tasks_for(target_task: T, tasks:Iterable[T], let_self: bool=False) -> list[T]:
+    """
+    Returns the list of tasks that intersect the given task. The intersection is computed by checking the intersection of the time intervals of the tasks.
+    
+    Args:
+        task : StlTask : the task for which we want to find the intersecting tasks
+        tasks : Iterable[StlTask] : the list of tasks to check for intersection
+        let_self bool : if True then the self task will be added to the list of intersecting tasks if this is present among the list of tasks
+    
+    Returns:
+        intersecting_tasks : list[StlTask] : the list of intersecting tasks
+    """
+    
+    
+    intersecting_tasks = []
+    
+    if not isinstance(target_task,TaskOptiContainer)  :
+        for other_task in tasks :
+            if isinstance(other_task,TaskOptiContainer) :
+                raise ValueError("The target_task is not a container but the list contains containers. This is not allowed")
+            
+            if not (target_task.temporal_operator.time_interval / other_task.temporal_operator.time_interval).is_empty() :
+                if let_self or (target_task != other_task) :
+                    intersecting_tasks.append(other_task)
+                
+    else :
+        for other_task in tasks :
+            if isinstance(other_task,StlTask) :
+                raise ValueError(f"The target_task is of type {TaskOptiContainer.__name__} but the list contains elemtns of type {StlTask.__name__}. This is not allowed")
+            
+            if not (target_task.task.temporal_operator.time_interval / other_task.task.temporal_operator.time_interval).is_empty() :
+                if let_self or (target_task != other_task) :
+                    intersecting_tasks.append(other_task)
+        
+    return intersecting_tasks
+
+
+T = TypeVar("T", StlTask,TaskOptiContainer )
+def is_union_covering(target_task:T, tasks:Iterable[T]) -> bool :
+    """
+    Check if the task is covered by the union of the tasks in the list.
+    
+    Args:
+        task : StlTask : the task to check for covering
+        tasks : Iterable[StlTask] : the list of tasks to check for covering
+    
+    Returns:
+        is_covered : bool : True if the task is covered by the union of the tasks in the list
+    """
+    
+    union         = TimeInterval(a=None,b=None)
+        
+    if not isinstance(target_task,TaskOptiContainer) :
+    
+        for other_task in tasks :
+            if isinstance(other_task,TaskOptiContainer) :
+                raise ValueError("The target_task is not a container but the list contains containers. This is not allowed")
+            
+            if union.can_be_merged_with(other_task.temporal_operator.time_interval) :
+                union = union.union(other_task.temporal_operator.time_interval)
+            else: # the union is discontinuous so it cannot be containing
+                return False
+    
+    else :
+        for other_task in tasks :
+            if isinstance(other_task,StlTask) :
+                raise ValueError(f"The target_task is of type {TaskOptiContainer.__name__} but the list contains elemtns of type {StlTask.__name__}. This is not allowed")
+            
+            if union.can_be_merged_with(other_task.task.temporal_operator.time_interval) :
+                union = union.union(other_task.task.temporal_operator.time_interval)
+            else: # the union is discontinuous so it cannot be containing
+                return False
+            
+    
+    if isinstance(target_task,TaskOptiContainer) :
+        if target_task.task.temporal_operator.time_interval in union :
+            return True
+        else :
+            return False
+    else :
+        if target_task.temporal_operator.time_interval in union :
+            return True
+        else :
+            return False
+
+
+def get_maximal_sets_of_intersecting_always_tasks(task_containers:list[TaskOptiContainer]) -> list[set[TaskOptiContainer]]:
+    
+    always_tasks : list[TaskOptiContainer] = [task_container for task_container in task_containers if isinstance(task_container.task.temporal_operator,G)]
+    maximal_sets = set()
+    
+    power_set: list[set[TaskOptiContainer]] = powerset(always_tasks)
+    print("Length of power set of always tasks: ",len(power_set))
+    intersecting_sets = list()
+    
+    for set_i in power_set:
+        
+        if len(set_i) == 1 : # single tasks are not considered to be intersecting with themself
+            continue
+        
+        intersection = TimeInterval(a = float("-inf"),b = float("inf"))
+        for task_container in set_i:
+            intersection = intersection / task_container.task.temporal_operator.time_interval
+        
+        if not intersection.is_empty() :
+            intersecting_sets.append(set_i)
+    
+    print("Length of oringal intersecting sets: ",len(intersecting_sets))
+    maximal_sets = []
+    
+    for set_i in intersecting_sets :
+        is_subset = False
+        for set_j in intersecting_sets :
+            if set_i.issubset(set_j) and set_i != set_j:
+                is_subset = True
+                break
+        if not is_subset :
+            maximal_sets.append(set_i)
+    
+    print("Length of maximal sets: ",len(maximal_sets))
+    return maximal_sets
+
+
+def get_minimal_sets_of_always_tasks_covering_by_union(task_containers:list[TaskOptiContainer]) -> list[set[TaskOptiContainer]]:
+    
+    always_tasks_containers    : list[TaskOptiContainer]   = [task_container for task_container in task_containers if isinstance(task_container.task.temporal_operator,G)]
+    eventually_task_containers : list[TaskOptiContainer]   = [task_container for task_container in task_containers if isinstance(task_container.task.temporal_operator,F)]
+    conflict_sets = list()
+    
+    
+    for eventually_task_container in eventually_task_containers :
+        intersecting_always_tasks : list[TaskOptiContainer]      = get_intersecting_tasks_for(eventually_task_container, always_tasks_containers )
+        if len(intersecting_always_tasks) == 0 :
+            continue    
+        power_set_of_intersecting_always_tasks : list[set[TaskOptiContainer]] = powerset(intersecting_always_tasks)
+        
+        for always_task_containers_set in power_set_of_intersecting_always_tasks :
+            if is_union_covering(eventually_task_container , always_task_containers_set) :
+                candidate_conflict = always_task_containers_set | {eventually_task_container} #set union
+                conflict_sets.append(candidate_conflict)
+            
+    
+    # now take the minimal ones
+    minimal_conflict_sets = []
+    
+    for conflict_set in conflict_sets :
+        has_subset = False
+        
+        for other_set in conflict_sets :
+            if other_set.issubset(conflict_set) and conflict_set != other_set :
+                has_subset = True
+                break
+        if not has_subset :
+            minimal_conflict_sets.append(conflict_set)
+            
+
+    return minimal_conflict_sets
+    
+
+def get_maximal_sets_of_always_tasks_covering_by_intersection(task_containers:list[TaskOptiContainer]) -> list[set[TaskOptiContainer]]:
+    
+    always_tasks_containers    : list[TaskOptiContainer] = [task_container for task_container in task_containers if isinstance(task_container.task.temporal_operator,G)]
+    eventually_task_containers : list[TaskOptiContainer] = [task_container for task_container in task_containers if isinstance(task_container.task.temporal_operator,F)]
+    conflict_sets = list()
+    
+    
+    for eventually_task_container in eventually_task_containers :
+        
+        intersecting_always_tasks : list[TaskOptiContainer]      = get_intersecting_tasks_for(eventually_task_container, always_tasks_containers )
+        if len(intersecting_always_tasks) == 0 :
+            continue    
+        power_set_of_intersecting_always_tasks : list[set[TaskOptiContainer]] = powerset(intersecting_always_tasks)
+    
+        for always_task_containers_set in power_set_of_intersecting_always_tasks :
+            
+            intersection = TimeInterval(a = float("-inf"),b = float("inf"))
+            for task_container in always_task_containers_set :
+                intersection = intersection / task_container.task.temporal_operator.time_interval
+            
+            if  eventually_task_container.task.temporal_operator.time_interval in intersection :
+                
+                candidate_conflict = always_task_containers_set | {eventually_task_container} #set union
+                conflict_sets.append(candidate_conflict)
+    
+    # now take the minimal ones
+    maximal_conflict_sets = []
+    
+    for conflict_set in conflict_sets :
+        is_subset = False
+        
+        for other_set in conflict_sets :
+            if conflict_set.issubset(other_set) and conflict_set != other_set :
+                is_subset = True
+                break
+        if not is_subset :
+            maximal_conflict_sets.append(conflict_set)
+            
+
+    return maximal_conflict_sets
+
+
+
 
 @dataclass(frozen=True)
 class DecompositionParameters :
@@ -346,7 +551,7 @@ class DecompositionParameters :
             raise ValueError("The communication radius must be positive")
         
 
-# LEARNING_RATE_0  *(1/it)^DECAY_RATE
+
 
 class EdgeComputingAgent(Publisher) :
     """
@@ -381,6 +586,7 @@ class EdgeComputingAgent(Publisher) :
         self._optimizer.subject_to(self._penalty>=0)
         self._optimizer.set_initial(self._penalty,40)
         
+        self._state_space_dim       = None
         self._penalty_values        = []
         self._cost_values           = []
         self._scale_factors_values  = []
@@ -451,6 +657,9 @@ class EdgeComputingAgent(Publisher) :
             self._logger.error(message)
             raise RuntimeError(message)
         
+        if len(self._task_containers) == 0:
+            self._state_space_dim = task_container.task.predicate.state_space_dim #! todo: we will need to add a check that all the tasks have the state state space 
+            
         self._task_containers.append(task_container) 
             
     def _compute_shared_constraints(self) -> list[ca.MX]:
@@ -500,116 +709,45 @@ class EdgeComputingAgent(Publisher) :
         """        
         
         constraints = []
-        
-        always_task_containers = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,G)]        
-        # Check the always intersections between tasks:
-        if len(self._task_containers) == 1 :
-           return  [] # with one single task you don't need overloading constraints
+        conflict_sets_L = get_maximal_sets_of_intersecting_always_tasks(task_containers = self._task_containers)
+        conflict_sets_C = get_minimal_sets_of_always_tasks_covering_by_union(   task_containers = self._task_containers)
+        conflict_sets_D = get_maximal_sets_of_always_tasks_covering_by_intersection(task_containers = self._task_containers)
         
         
-        # 1) Always intersection constraints.
-        always_tasks_combinations : list[tuple[TaskOptiContainer,TaskOptiContainer]] = list(combinations(always_task_containers,2))
-        for container1,container2 in always_tasks_combinations :
-            time_intersection = container1.task.temporal_operator.time_interval / container2.task.temporal_operator.time_interval
-            if  ( not time_intersection .is_empty()) and (any_parametric([container1,container2])): # there is an intersection
-                
-                zeta = self._optimizer.variable(container1.task.state_space_dimension) * self.communication_radius # scaled by the communication radius for better convergence. * self.communication_radius # scaled by the communication radius for better convergence.
-                # Choose a direction arbitrarily ro be used for the inclusion constraint.
-                (i,j) = (container1.task.predicate.source_agent,container1.task.predicate.target_agent)
-                
-                # Now impose the inclusion with consistency on the source and target direction for this edge.
-                constraints += [get_inclusion_contraint(zeta = zeta, task_container= container1,source=i,target=j)]
-                constraints += [get_inclusion_contraint(zeta = zeta, task_container= container2,source=i,target=j)]
+        # print length of the sets 
+        print("number of tasks : ", len(self._task_containers))
+        print("Number of always tasks : ",len([task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,G)]))
+        print("Length of conflict sets L : ",len(conflict_sets_L))
+        print("Length of conflict sets C : ",len(conflict_sets_C))
+        print("Length of conflict sets D : ",len(conflict_sets_D))
+        
+        conflict_sets = conflict_sets_L + conflict_sets_C + conflict_sets_D
+        
+        clean_conflict_sets = list()
+        for conflict_set in conflict_sets :
+            if not (conflict_set in clean_conflict_sets) :
+                clean_conflict_sets.append(conflict_set)
+        
+        
+        
+        for conflict_set in  clean_conflict_sets :
+            
+            if any_parametric(conflict_set) :
+                is_first = True
+                zeta = self._optimizer.variable(self._state_space_dim)* self.communication_radius #todo! change the number 2 with state space dimension when moving to higher dimensional systems
                 self._zeta_variables += [zeta]
                 
-        # 2) Eventually intersection constraints.
-        maximal_sets : dict[TaskOptiContainer,list[set[TaskOptiContainer]]] = self.compute_maximal_sets_intersecting_eventually_tasks()
-        for eventually_container,always_container_sets in maximal_sets.items() :
-            
-            for always_set in always_container_sets :
-            
-                zeta = self._optimizer.variable(eventually_container.task.state_space_dimension)* self.communication_radius # scaled by the communication radius for better convergence.* self.communication_radius # scaled by the communication radius for better convergence.
-                (i,j) = (eventually_container.task.predicate.source_agent,eventually_container.task.predicate.target_agent)
-                
-                if any_parametric(always_set.union({eventually_container})) : # check if there is any parametric task over which to impose the task.
-                    # Always tasks inclusion.
-                    for always_container in always_set :
-                        constraints += [get_inclusion_contraint(zeta = zeta, task_container = always_container,source=i,target=j)]
+                for task_container in conflict_set :
+                    if is_first : # they can be aligned with the first task in the conflict set
+                        i,j = task_container.task.predicate.source_agent,task_container.task.predicate.target_agent
+                        is_first = False
                     
-                    # Eventually tasks inclusion.
-                    constraints += [ get_inclusion_contraint(zeta = zeta, task_container =  eventually_container,source=i,target=j) ]
-                    self._zeta_variables += [zeta]
-           
+                    constraints += [get_inclusion_contraint(zeta = zeta, task_container = task_container,source=  i,target=j)]
+                        
         return constraints   
     
     
-    def compute_maximal_sets_intersecting_eventually_tasks(self) -> dict[TaskOptiContainer,list[set[TaskOptiContainer]]]:
-        """
-        For each eventually task computes all the sets of always tasks that are intersectiing among each other and also intersect the eventually task. 
-        The returned value is a dictionary where each key is an eventually task and each item is a list of sets as aper above.
-        """
-        
-        # Separate always and eventually tasks.
-        always_task_containers      : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,G)]
-        eventually_task_containers  : list[TaskOptiContainer]  = [task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,F)]
-        
-        if len(eventually_task_containers) == 0:
-            return {}
-        
-        # Find all always tasks that intersect a single eventually task.
-        intersection_sets = dict()
-        for eventually_container in eventually_task_containers :
-            intersecting_always_tasks = set()
-            for always_container in always_task_containers :
-                if  not (eventually_container.task.temporal_operator.time_interval / always_container.task.temporal_operator.time_interval ).is_empty() :
-                    intersecting_always_tasks.add(always_container)
-            
-            intersection_sets[eventually_container] = intersecting_always_tasks
-            
-            
-        # For each eventually task compute the power set of always tasks that intersect it.
-        power_sets  : dict[TaskOptiContainer,list[set[TaskOptiContainer]]]  = { eventually_container : powerset(intersecting_always_tasks) for eventually_container,intersecting_always_tasks in intersection_sets.items() } 
-        
-        # Among the sets in the power set, find the sets with non empty intersection and such that its intersection intersect the eventually
-        candidate_sets  : dict[TaskOptiContainer,list[set[TaskOptiContainer]]] = {}
-        
-        for eventually_container,always_container_sets in power_sets.items() :
-            for always_container_set in always_container_sets :
-                # Compute the intersection of all tasks in this subset.
-                intersection = TimeInterval(a = float("-inf"),b = float("inf"))
-                candidate_sets[eventually_container]  = []
-                
-                for always_task in always_container_set :
-                    intersection = intersection / always_task.task.temporal_operator.time_interval
-                
-                # At last check intersection with the eventually task.
-                intersection = intersection / eventually_container.task.temporal_operator.time_interval
-                
-                # If there is a nonzero intersection then add a common intersection constraint.
-                if not intersection.is_empty() :
-                    candidate_sets[eventually_container] += [always_container_set] 
-                
-        # Obtain the maximal sets among the candidate intersecting sets.  
-        maximal_sets = {}   
-        for eventually_container, always_container_sets in candidate_sets.items():
-            # Sort the sets by size in descending order
-            always_container_sets = sorted(always_container_sets, key=len, reverse=True)
-            
-            # Initialize a list to keep track of maximal sets
-            maximal_set_list = []
-            
-            for set_i in always_container_sets:
-                is_subset = False
-                for max_set in maximal_set_list:
-                    if set_i.issubset(max_set):
-                        is_subset = True
-                        break
-                if not is_subset:
-                    maximal_set_list.append(set_i)
-            
-            maximal_sets[eventually_container] = maximal_set_list
-                            
-        return maximal_sets  
+    
             
   
     

@@ -115,7 +115,7 @@ for ii in range(2,16):
 # while 1 goes back to zero
 polytope     = regular_2D_polytope(8, 200* meters_to_km    )
 predicate    = IndependentPredicate( polytope_0 = polytope, center = np.array([0.,0.]), agent_id =1 )
-task         = G(30,35) @ predicate
+task         = G(30,40) @ predicate
 task_graph.attach(task)
 
 

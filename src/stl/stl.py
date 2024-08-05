@@ -20,19 +20,22 @@ class TimeInterval :
     def __init__(self,a:float|None = None,b:float|None =None) -> None:
         
         
-        if any([a==None,b==None]) and (not all(([a==None,b==None]))) :
-            raise ValueError("only empty set is allowed to have None Values for both the extreems a and b of the interval. Please revise your input")
-        elif  any([a==None,b==None]) and (all(([a==None,b==None]))) : # empty set
-            self._a = a
-            self._b = b
+        if any([a==None,b==None]) :
+            if (not all(([a==None,b==None]))) :
+                raise ValueError("Only empty set is allowed to have None Values for both the extreems a and b of the interval. Please revise your input")
+            elif  all(([a==None,b==None])) : # empty set
+                self._a = a
+                self._b = b
         else :    
-            if a>b :
-                raise ValueError("Time interval must be a couple of non decreasing time instants")
             try :
                 self._a = float(a)
                 self._b = float(b)
             except :
                 raise ValueError(f"The given time instants must be convertible to float. Given types are {type(a)}  and {type(b)}")
+            
+            if a>b :
+                raise ValueError("Time interval must be a couple of non decreasing time instants")
+            
         
     @property
     def a(self):
@@ -64,7 +67,7 @@ class TimeInterval :
         else :
             return False
         
-        
+    
         
     def __truediv__(self,timeInt:"TimeInterval") -> "TimeInterval" :
         """returns interval Intersection"""
@@ -106,8 +109,58 @@ class TimeInterval :
             return False
         else :
             return True
+    
+    
+    def __contains__(self,time: Union[float,"TimeInterval"]) -> bool:
+        "returns true if a given time instant of time interval is contained in the interval"
         
+        if isinstance(time,TimeInterval) :
+            
+            a1,b1 = time.a,time.b
+            a2,b2 = self._a,self._b
+            
+            if a1>=a2 and b1<=b2 :
+                return True
+            else :
+                return False
+        else :
+            time = float(time)
+            if (self._a >= time) and (time <= self._b) :
+                return True
+            else :
+                return False
+            
+    def union(self,timeInt:"TimeInterval") -> "TimeInterval":
+        """returns the union of two intervals if the two are intersecting"""
         
+        a1,b1 = timeInt.a,timeInt.b
+        a2,b2 = self._a,self._b
+        
+        if self.is_empty() :
+            return timeInt.getCopy()
+        if timeInt.is_empty() :
+            return self.getCopy()
+        
+        if not self.__truediv__(timeInt).is_empty() :
+            return TimeInterval(a = min(a1,a2), b = max(b1,b2))
+        else :
+            raise ValueError("The two intervals are not intersecting. The union is not defined by a single interval")
+        
+    def can_be_merged_with(self,timeInt:"TimeInterval") -> bool:
+        """returns true if the two intervals can be merged into a single interval because the two intervals are intersecting"""
+        
+        a1,b1 = timeInt.a,timeInt.b
+        a2,b2 = self._a,self._b
+        
+        if self.is_empty() :
+            return True
+        if timeInt.is_empty() :
+            return True
+        
+        if not self.__truediv__(timeInt).is_empty() :
+            return True
+        else :
+            return False
     
     def __lt__(self,timeInt:"TimeInterval") -> "TimeInterval":
         """strict subset relations self included in timeInt ::: "TimeInterval" < timeInt """
@@ -1017,3 +1070,14 @@ def plot_contour(smooth_min :CollaborativeBarrierType | IndependentBarrierType  
 
 def filter_tasks_by_time_limit(tasks:list[StlTask], initial_time: float, final_time :float) -> list[StlTask]:
     return [task for task in tasks if task.temporal_operator.time_of_satisfaction >= initial_time and task.temporal_operator.time_of_satisfaction <= final_time]
+
+
+
+if __name__ == "__main__" :
+    
+    timeint1 = TimeInterval(0,10)
+    timeint2 = TimeInterval(10,20)
+    #intersection 
+    print(timeint1.can_be_merged_with(timeint2))
+    print(timeint1.union(TimeInterval(None,None)))
+    
