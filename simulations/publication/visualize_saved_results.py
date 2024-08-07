@@ -18,7 +18,7 @@ plt.rcParams['axes.titlesize'] = 14
 identifiers = list(range(1,16))
 first_plot  = True
 
-split_times = [0., 7., 15., 25., 40.]
+split_times = [0., 20., 20.01, 39.98, 40.0]
 
 
 
@@ -26,13 +26,12 @@ split_times = [0., 7., 15., 25., 40.]
 fig = plt.figure(layout="constrained")
 ax_dict = fig.subplot_mosaic(
     [
-        ["0", "1","2"],
-        ["0", "1","2"],
-        ["3", "penalties","penalties"],
-        ["3", "accuracy" ,"accuracy"],
+        ["0", "1"],
+        ["2", "3"],
     ],
 )
 
+stepping_points = 100
 for identifier in identifiers:
     trajectory = np.load(os.path.join( os.path.dirname(__file__),"states",f"state_history_{identifier}.npy"))   
     state      = trajectory[:,1:]
@@ -46,11 +45,18 @@ for identifier in identifiers:
     for ii,state_section in enumerate(state_sections) :
         
         ax = ax_dict[str(ii)]
-        if identifier == 1:
-            ax.scatter(state_section[:,0],state_section[:,1],label=fr'Agent_{identifier}', marker="o", s=5, c="red")
-        else :
-            ax.scatter(state_section[:,0],state_section[:,1],label=fr'Agent_{identifier}', marker="o", s=2, c="green")
-
+        
+        if ii in [1,3] :
+            if identifier == 1:
+                ax.scatter(state_section[::stepping_points,0],state_section[::stepping_points,1],label=fr'Agent_{identifier}', marker="o", s=20, c="red")
+            else :
+                ax.scatter(state_section[::stepping_points,0],state_section[::stepping_points,1],label=fr'Agent_{identifier}', marker="o", s=20, c="green")
+        else : # snapshot images
+            if identifier == 1:
+                ax.scatter(state_section[::stepping_points,0],state_section[::stepping_points,1],label=fr'Agent_{identifier}', marker="o", s=5, c="red")
+            else :
+                ax.scatter(state_section[::stepping_points,0],state_section[::stepping_points,1],label=fr'Agent_{identifier}', marker="o", s=5, c="green")
+            
 
 # Display the background image, ensuring it covers the axis limits
 background_image = mpimg.imread("/home/gregorio/Desktop/papers/journal/decentralized_STL_task_decomposition/code/assets/thira.png")
@@ -59,20 +65,31 @@ for jj in range(4) :
     ax_dict[str(jj)].set_xlabel(r'Km')
     ax_dict[str(jj)].set_ylabel(r'Km')
     ax_dict[str(jj)].set_xlim(-11.5,24.4)
-    ax_dict[str(jj)].set_title("Time [h] = " + str(split_times[jj]) + " to " + str(split_times[jj+1]) )
     ax_dict[str(jj)].text(-10, -6.5, str(jj), fontsize=17,color="white")
-    
+
+
+fig = plt.figure(layout="constrained")
+ax_dict = fig.subplot_mosaic(
+    [
+
+        ["penalties","penalties"],
+        ["accuracy" ,"accuracy"],
+    ],
+)
+
+
     
 cost_end_penalties = np.load(os.path.join( os.path.dirname(__file__),"decomposition_result","cost_and_penalties.npy"),allow_pickle=True)[()]
 decomposition_accuracy_per_task = np.load(os.path.join( os.path.dirname(__file__),"decomposition_result","decomposition_accuracy_per_task.npy"),allow_pickle=True)[()] # this indexing is because for some reason the pickling saves the dict as a zero numpy array
 
 
 fig,axs = plt.subplots(2,1)
-axins   = (zoomed_inset_axes(ax_dict["accuracy"], 5.00, loc=1),zoomed_inset_axes(ax_dict["penalties"], 8.50, loc='center right'))
+axins   = (zoomed_inset_axes(ax_dict["accuracy"], 5.00, loc=1),zoomed_inset_axes(ax_dict["penalties"], 7.50, loc='center right'))
 
 num_iterations = len(list(cost_end_penalties.values())[0]["penalties"])
+
 for task_id,accuracy in decomposition_accuracy_per_task.items() :
-    ax_dict["accuracy"].plot(range(num_iterations),accuracy,label=fr'Task_{task_id}')
+    ax_dict["accuracy"].plot(range(0,num_iterations),accuracy,label=fr'Task_{task_id}')
     axins[0].plot(range(3000,num_iterations),accuracy[3000:])
 
 axins[0].set_ylim(0.7,1.1)
@@ -80,9 +97,10 @@ ax_dict["accuracy"].grid()
 ax_dict["accuracy"].set_ylabel(r"Accuracy")
 # show penalties
 
+
 for edge, results in cost_end_penalties.items():
     ax_dict["penalties"].plot(results["penalties"]) 
-    axins[1].plot(range(300,650),results["penalties"][300:650])
+    axins[1].plot(range(280,650),results["penalties"][280:650])
 
 ax_dict["penalties"].grid()
 ax_dict["penalties"].set_ylabel(r"Penalties $\rho_i$")

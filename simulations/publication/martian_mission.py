@@ -13,7 +13,7 @@ from stlddec.decomposition import run_task_decomposition,DecompositionParameters
 
 JIT                  = False  # if you want to just in time compile the code.
 USE_SAVED_TASK_GRAPH = False  # if you want to use the already decomposed graph from a previous simulation.
-SAVE_SIMULATION      = False  # if you waant to save the results of the simulation.
+SAVE_SIMULATION      = False # if you want to save the results of the simulation.
 
 # set seeds for replication
 np.random.seed(100)
@@ -37,7 +37,7 @@ task_graph = TaskGraph()
 ## Independent task : Agents 1 moves toward the crater.
 polytope     = regular_2D_polytope(4, 400* meters_to_km    )
 predicate    = IndependentPredicate( polytope_0 = polytope, center = np.array([5.,0.]), agent_id =1 )
-task         = G(10,30) @ predicate
+task         = G(10,20) @ predicate
 task_graph.attach(task)
 
 ## Two robots to the sides of the crater: agent 8 on the upper side and robot 4 on the lower side.
@@ -54,7 +54,7 @@ task_graph.attach(task)
 
 ## Two robots the upper crater and they should stay together all time
 polytope     = regular_2D_polytope(4, 700* meters_to_km    )
-predicate    = CollaborativePredicate( polytope_0 = polytope,  center = np.array([-12.,5.5]), source_agent_id =1, target_agent_id =14 )
+predicate    = CollaborativePredicate( polytope_0 = polytope,  center = np.array([-12.,6.0]), source_agent_id =1, target_agent_id =14 )
 task         = G(13,15) @ predicate
 task_graph.attach(task)
 
@@ -95,7 +95,7 @@ task_graph.attach(task)
 
 
 polytope     = regular_2D_polytope(5, 300* meters_to_km    )
-predicate    = CollaborativePredicate( polytope_0 = polytope,  center = np.array([0.,3.]), source_agent_id =10, target_agent_id =15 )
+predicate    = CollaborativePredicate( polytope_0 = polytope,  center = np.array([0.,0.]), source_agent_id =10, target_agent_id =15 )
 task         = G(18,20) @ predicate
 task_graph.attach(task)
 
@@ -113,7 +113,7 @@ for ii in range(2,16):
     task_graph.attach(task)
     
 # while 1 goes back to zero
-polytope     = regular_2D_polytope(8, 200* meters_to_km    )
+polytope     = regular_2D_polytope(8, 300* meters_to_km    )
 predicate    = IndependentPredicate( polytope_0 = polytope, center = np.array([0.,0.]), agent_id =1 )
 task         = G(30,40) @ predicate
 task_graph.attach(task)
@@ -132,11 +132,12 @@ if  USE_SAVED_TASK_GRAPH :
     with open(os.path.join( os.path.dirname(__file__),'new_task_graph.gpickle'), 'rb') as f:
         new_task_graph = pickle.load(f)
 else :
+    # DO NOT CHANGE THESE PARAMETERS FOR THIS EXAMPLE.
     parameters = DecompositionParameters(learning_rate_0     = 0.3,  # higher value : increases learning speed bu gives rise to jittering
                                          decay_rate          = 0.7,  # higher value : learning rate decays faster
-                                         penalty_coefficient  = 3500,  # higher value : can speed up convergence but too high values will enhance jittering
+                                         penalty_coefficient  = 100,  # higher value : can speed up convergence but too high values will enhance jittering )
                                          communication_radius  = 8.5, # practically infinity
-                                         number_of_optimization_iterations = 1000)
+                                         number_of_optimization_iterations = 3500)
     
     
     

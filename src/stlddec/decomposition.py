@@ -406,7 +406,6 @@ def get_maximal_sets_of_intersecting_always_tasks(task_containers:list[TaskOptiC
     maximal_sets = set()
     
     power_set: list[set[TaskOptiContainer]] = powerset(always_tasks)
-    print("Length of power set of always tasks: ",len(power_set))
     intersecting_sets = list()
     
     for set_i in power_set:
@@ -421,7 +420,6 @@ def get_maximal_sets_of_intersecting_always_tasks(task_containers:list[TaskOptiC
         if not intersection.is_empty() :
             intersecting_sets.append(set_i)
     
-    print("Length of oringal intersecting sets: ",len(intersecting_sets))
     maximal_sets = []
     
     for set_i in intersecting_sets :
@@ -433,7 +431,6 @@ def get_maximal_sets_of_intersecting_always_tasks(task_containers:list[TaskOptiC
         if not is_subset :
             maximal_sets.append(set_i)
     
-    print("Length of maximal sets: ",len(maximal_sets))
     return maximal_sets
 
 
@@ -669,9 +666,11 @@ class EdgeComputingAgent(Publisher) :
         Returns:
             constraints : set of constraints due to the parametric task path constraints
         """        
+
         constraints_list = []
         for container in self._task_containers :
             if container.task.is_parametric :
+               
                 task                 = container.task                          # extract task
                 num_computing_agents = container.length_decomposition_path -1  # Number of agents sharing the computation for this constraint
                 # Compute constraints.
@@ -713,15 +712,9 @@ class EdgeComputingAgent(Publisher) :
         conflict_sets_C = get_minimal_sets_of_always_tasks_covering_by_union(   task_containers = self._task_containers)
         conflict_sets_D = get_maximal_sets_of_always_tasks_covering_by_intersection(task_containers = self._task_containers)
         
-        
         # print length of the sets 
-        print("number of tasks : ", len(self._task_containers))
-        print("Number of always tasks : ",len([task_container for task_container in self._task_containers if isinstance(task_container.task.temporal_operator,G)]))
-        print("Length of conflict sets L : ",len(conflict_sets_L))
-        print("Length of conflict sets C : ",len(conflict_sets_C))
-        print("Length of conflict sets D : ",len(conflict_sets_D))
-        
         conflict_sets = conflict_sets_L + conflict_sets_C + conflict_sets_D
+        self._number_of_conflict_sets = len(conflict_sets)
         
         clean_conflict_sets = list()
         for conflict_set in conflict_sets :
@@ -779,7 +772,6 @@ class EdgeComputingAgent(Publisher) :
         else :
             cost = 0
         
-        
         for task_container in self._task_containers :
             
             if task_container.task.is_parametric:
@@ -831,6 +823,7 @@ class EdgeComputingAgent(Publisher) :
         print(f"Number of variables                     : {self.optimizer.nx}")
         print(f"Number of parameters  (from concensus)  : {self.optimizer.np}")
         print(f"Number of parametric tasks              : {self._parametric_task_count}")
+        print(f"Number of conflicting conjunctions sets : ",self._number_of_conflict_sets)
         
         if self._jit :
             # Problem options
@@ -1091,7 +1084,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,para
     computing_graph :EdgeComputingGraph = extract_computing_graph_from_communication_graph(communication_graph = communication_graph, parameters = parameters)
 
     critical_task_to_path_mapping : dict[StlTask,list[int]] = {} # mapping of critical tasks to the path used to decompose them.
-    
+    count_new_tasks_added = 0
     # For each each edge check if there is a decomposition to be done.
     for edge in original_task_graph.edges : 
         
@@ -1132,7 +1125,7 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,para
                     
                     # Create parametric task along this edge and add it to the communication graph.
                     subtask = create_parametric_collaborative_task_from(task = parent_task , source_agent_id = source_node, target_agent_id = target_node ) 
-                    
+                    count_new_tasks_added +=1
                     
                     # Create task container to be given to the computing agent corresponding to the edge.
                     task_container = TaskOptiContainer(task=subtask)
@@ -1238,6 +1231,16 @@ def run_task_decomposition(communication_graph:nx.Graph,task_graph:nx.Graph,para
                 new_task_graph[edge[0]][edge[1]][MANAGER].add_tasks(task) # add the task to the new task graph once the solution is found.
     
     new_task_graph = clean_task_graph(new_task_graph) # clean the graph from edges without any tasks (so the ones present in the old task graph and that are not used now)
+    
+    
+    print("**************************************************************")
+    print("General Informations")
+    print("**************************************************************")
+    print("Number of critical tasks : ",len(critical_task_to_path_mapping))
+    print("Number of new tasks added :", count_new_tasks_added)
+    print("**************************************************************")
+    print("Specific information")
+    print("**************************************************************")
     
     # print the decomposition result
     for critical_task,path in critical_task_to_path_mapping.items() :
