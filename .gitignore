@@ -7,3 +7,6 @@
 __pycache__
 jit_*
 tmp_*
+simulations/publication_testing
+*.npy
+*.gpickle
