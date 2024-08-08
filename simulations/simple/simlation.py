@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from stl.stl import CollaborativePredicate,regular_2D_polytope, G, F
-from stlddec.graphs import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
+from stl.graphs import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
 from simulator.sim   import MultiAgentSystem, simulate_agents
 from stl.dynamics     import SingleIntegrator2D
 

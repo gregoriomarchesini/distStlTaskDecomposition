@@ -5,7 +5,7 @@ import os
 import logging
 
 from stl.stl               import CollaborativePredicate,IndependentPredicate , regular_2D_polytope, G,F
-from stlddec.graphs        import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
+from stl.graphs        import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
 from simulator.sim        import MultiAgentSystem, simulate_agents
 from stl.dynamics          import SingleIntegrator2D
 from stlddec.decomposition import run_task_decomposition

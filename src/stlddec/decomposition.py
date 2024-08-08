@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from stl.stl import * 
 from stlddec.transport import Publisher
-from stlddec.graphs import *
+from stl.graphs import *
 
 
 

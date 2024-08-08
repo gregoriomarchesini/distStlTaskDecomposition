@@ -30,7 +30,7 @@ from   traceback import format_exc
 from   dataclasses import dataclass
 import networkx as nx
 
-from stlddec.graphs     import CommunicationGraph,TaskGraph
+from stl.graphs         import CommunicationGraph,TaskGraph
 from stlcont.controller import STLController, get_logger
 from stlcont.utils      import token_passing_algorithm, LeadershipToken
 from stl.dynamics       import DynamicalModel,SingleIntegrator2D

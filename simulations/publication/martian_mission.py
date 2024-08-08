@@ -6,7 +6,7 @@ import logging
 import pickle
 
 from stl.stl               import CollaborativePredicate,IndependentPredicate , regular_2D_polytope, G,F
-from stlddec.graphs        import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs, visualize_tasks_in_the_graph
+from stl.graphs        import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs, visualize_tasks_in_the_graph
 from simulator.sim        import MultiAgentSystem, simulate_agents
 from stl.dynamics          import SingleIntegrator2D
 from stlddec.decomposition import run_task_decomposition,DecompositionParameters
