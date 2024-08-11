@@ -824,7 +824,7 @@ class IndependentSmoothMinBarrierFunction(BarrierFunction):
         cumulative_switch = 0
         for barrier_function in self._list_of_barrier_functions :
             cumulative_switch += barrier_function._switch_function.compute(t) # to set the barrier at zero when all the barriers have been switched off
-            sum += ca.exp(-self._eta*barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*big_number/self._eta)  
+            sum += ca.exp(-self._eta*(barrier_function.compute(x,t) + (1.-barrier_function._switch_function.compute(t))*big_number/self._eta))  
             # ^^ each terms becomes very big when the switch function is off and the gradient of that component will be zero because the linear barrier component sets the gradient to zero (using the switch function)
         
         smooth_min_sym      = -ca.log(sum)/self._eta

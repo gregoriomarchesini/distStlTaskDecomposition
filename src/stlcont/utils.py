@@ -2,7 +2,6 @@ from   enum import Enum
 import multiprocessing as mp
 from   networkx import Graph, is_tree
 from   networkx import diameter as net_diameter
-import networkx as nx
 import numpy as np
 import sys,os
 
