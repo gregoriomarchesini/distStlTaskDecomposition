@@ -720,6 +720,8 @@ class EdgeComputingAgent(Publisher) :
         for conflict_set in conflict_sets :
             if not (conflict_set in clean_conflict_sets) :
                 clean_conflict_sets.append(conflict_set)
+                
+        self._number_of_conflict_sets = len(clean_conflict_sets)
         
         
         
@@ -823,7 +825,7 @@ class EdgeComputingAgent(Publisher) :
         print(f"Number of variables                     : {self.optimizer.nx}")
         print(f"Number of parameters  (from concensus)  : {self.optimizer.np}")
         print(f"Number of parametric tasks              : {self._parametric_task_count}")
-        print(f"Number of conflicting conjunctions sets : ",self._number_of_conflict_sets)
+        print(f"Number of conflicting conjunctions sets : {self._number_of_conflict_sets}")
         
         if self._jit :
             # Problem options
