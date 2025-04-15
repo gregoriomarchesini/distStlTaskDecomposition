@@ -10,3 +10,5 @@ tmp_*
 simulations/publication_testing
 *.npy
 *.gpickle
+
+.egg-info
