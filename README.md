@@ -11,7 +11,7 @@ This package contains the code to execute the decomposition of a set of tasks as
 The package was tested with `python3.11`. The package `polytope` has shown to have problems of compatibility with numpy in other python versions.
 
 ```
-pip install -r requirements. txt
+pip install -e .
 ```
 It is recommended to create a separate virtual environment on your computer to download the packages. Either with [Anaconda](https://conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)  ot via [pip](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/).
 
