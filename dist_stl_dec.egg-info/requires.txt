@@ -1,0 +1,7 @@
+casadi
+matplotlib
+numpy
+tqdm
+networkx
+polytope
+loggers

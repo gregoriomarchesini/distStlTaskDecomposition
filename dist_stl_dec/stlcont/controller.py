@@ -28,9 +28,8 @@ from   typing import Callable,Union
 import logging
 from   abc import ABC,abstractmethod
 
-from   loggers.loggers import get_logger
-from    stl.dynamics import DynamicalModel
-from    stl.stl import (StlTask,
+from    ..stl.dynamics import DynamicalModel
+from    ..stl.stl import (StlTask,
                         IndependentLinearBarrierFunction,
                         CollaborativeLinearBarrierFunction,
                         IndependentSmoothMinBarrierFunction,
@@ -210,7 +209,7 @@ class STLController(Publisher):
         for topic in topics:
             self.add_topic(topic)
         
-        self._logger = get_logger(f"Controller {self._unique_identifier}", level=log_level)
+        self._logger = logging.getLogger(f"Controller {self._unique_identifier}")
 
     
     #exposed attributes according to main abstract class

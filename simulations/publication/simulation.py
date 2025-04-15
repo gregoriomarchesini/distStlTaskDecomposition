@@ -4,11 +4,11 @@ import matplotlib.image as mpimg
 import os
 import logging
 
-from stl.stl               import CollaborativePredicate,IndependentPredicate , regular_2D_polytope, G,F
-from stl.graphs        import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
-from simulator.sim        import MultiAgentSystem, simulate_agents
-from stl.dynamics          import SingleIntegrator2D
-from stlddec.decomposition import run_task_decomposition
+from dist_stl_dec.stl.stl               import CollaborativePredicate,IndependentPredicate , regular_2D_polytope, G,F
+from dist_stl_dec.stl.graphs        import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
+from dist_stl_dec.simulator.sim        import MultiAgentSystem, simulate_agents
+from dist_stl_dec.stl.dynamics          import SingleIntegrator2D
+from dist_stl_dec.stlddec.decomposition import run_task_decomposition
 
 logging.basicConfig(level=logging.ERROR)
 

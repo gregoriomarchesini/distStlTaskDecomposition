@@ -2,8 +2,8 @@ import numpy as np
 import casadi as ca
 from abc import ABC, abstractmethod
 
-from stl.dynamics  import DynamicalModel
-from stlcont.utils import NoStdStreams
+from ..stl.dynamics  import DynamicalModel
+from .utils import NoStdStreams
 
 
 class ImpactSolver(ABC):

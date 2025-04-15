@@ -11,9 +11,10 @@ import io
 from dataclasses import dataclass
 
 
-from stl.stl import * 
-from stlddec.transport import Publisher
-from stl.graphs import *
+from ..stl.graphs import *
+from ..stl.stl import * 
+
+from  .transport import Publisher
 
 
 
@@ -592,7 +593,7 @@ class EdgeComputingAgent(Publisher) :
         
         self.add_topic("new_consensus_variable")
         self.add_topic("new_lagrangian_variable")
-        self._logger = get_logger("Agent-" + str(self.edge_id),level = logger_level)
+        self._logger = logging.getLogger("Agent-" + str(self.edge_id))
     
     @property
     def edge_id(self):

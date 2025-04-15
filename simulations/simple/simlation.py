@@ -1,10 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from stl.stl import CollaborativePredicate,regular_2D_polytope, G, F
-from stl.graphs import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
-from simulator.sim   import MultiAgentSystem, simulate_agents
-from stl.dynamics     import SingleIntegrator2D
+from dist_stl_dec.stl.stl import CollaborativePredicate,regular_2D_polytope, G, F
+from dist_stl_dec.stl.graphs import TaskGraph, CommunicationGraph, normalize_graphs, show_graphs
+from dist_stl_dec.simulator.sim   import MultiAgentSystem, simulate_agents
+from dist_stl_dec.stl.dynamics     import SingleIntegrator2D
 
 # set seeds for replication
 np.random.seed(100)

@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools >= 77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dist-stl-dec"
+version = "0.0"
+authors = [
+  {name = "Gregorio Marchesini", email = "gremar@kth.se"},
+]
+readme = "README.md"
+dependencies = [
+  "casadi",
+  "matplotlib",
+  "numpy",
+  "tqdm",
+  "networkx",
+  "polytope",
+  "loggers"
+]
+[tool.setuptools]
+packages = ["dist_stl_dec"]

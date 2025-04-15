@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Polygon
 
-from   stl.stl import StlTask, CollaborativePredicate, IndependentPredicate
+from  .stl import StlTask, CollaborativePredicate, IndependentPredicate
 
 
 

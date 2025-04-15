@@ -29,16 +29,18 @@ from   tqdm import tqdm
 from   traceback import format_exc
 from   dataclasses import dataclass
 import networkx as nx
+import logging
 
-from stl.graphs         import CommunicationGraph,TaskGraph
-from stlcont.controller import STLController, get_logger
-from stlcont.utils      import token_passing_algorithm, LeadershipToken
-from stl.dynamics       import DynamicalModel,SingleIntegrator2D
+from ..stl.graphs         import CommunicationGraph,TaskGraph
+from ..stl.dynamics       import DynamicalModel,SingleIntegrator2D
+
+from ..stlcont.controller import STLController
+from ..stlcont.utils      import token_passing_algorithm, LeadershipToken
 
 
 plt.rcParams["figure.figsize"] = (3.425, 2.325)
 
-logger = get_logger(__name__)
+logger = logging.getLogger(__name__)
 
 @dataclass
 class MultiAgentSystem:
