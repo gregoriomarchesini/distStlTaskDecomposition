@@ -133,11 +133,11 @@ if  USE_SAVED_TASK_GRAPH :
         new_task_graph = pickle.load(f)
 else :
     # DO NOT CHANGE THESE PARAMETERS FOR THIS EXAMPLE.
-    parameters = DecompositionParameters(learning_rate_0     = 0.3,  # higher value : increases learning speed but gives rise to jittering
+    parameters = DecompositionParameters(learning_rate_0     = 0.8,  # higher value : increases learning speed but gives rise to jittering
                                          decay_rate          = 0.7,  # higher value : learning rate decays faster
                                          penalty_coefficient  = 100,  # higher value : can speed up convergence but too high values will enhance jittering
                                          communication_radius  = 8.5, 
-                                         number_of_optimization_iterations = 3500)
+                                         number_of_optimization_iterations = 100)
     
     
     
@@ -172,8 +172,11 @@ visualize_tasks_in_the_graph(new_task_graph)
 state_history = simulate_agents(system,final_time=40., jit=JIT, look_ahead_time= 20.)
 
 ax = plt.gca()
+script_dir = os.path.dirname(__file__)  # Script location
+image_path = os.path.join(script_dir, "..", "..", "assets", "thira.png")
+
 # Display the background image, ensuring it covers the axis limits
-background_image = mpimg.imread("../../assets/thira.png")
+background_image = mpimg.imread(image_path)
 ax.imshow(background_image, extent=[-25,25, -7.5,7.5], aspect='auto')
 ax.set_xlabel("Km")
 ax.set_ylabel("Km")
